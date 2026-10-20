@@ -1,0 +1,14 @@
+# Normalize text files to LF in the repository and working tree.
+* text=auto eol=lf
+
+# Windows batch files need CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
