@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>Claude Görsel Köprüsü</title>
+  <style>
+    :root {
+      --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea;
+      --ok: #1a7f37; --bad: #c62828; --accent: #7c3aed; --accent-fg: #ffffff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #1c1c1e; --fg: #f2f2f7; --muted: #a1a1a6; --line: #38383a; --ok: #3fb950; --bad: #ff6b6b; }
+    }
+    body { margin: 0; width: 300px; background: var(--bg); color: var(--fg); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
+    header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); font-weight: 600; }
+    header img { width: 20px; height: 20px; }
+    dl { margin: 0; padding: 10px 14px; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
+    dt { color: var(--muted); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    .ok { color: var(--ok); font-weight: 600; }
+    .bad { color: var(--bad); font-weight: 600; }
+    #hint { padding: 0 14px 10px; color: var(--muted); font-size: 12px; }
+    #hint:empty { display: none; }
+    button { margin: 0 14px 12px; width: calc(100% - 28px); padding: 8px 10px; border: 0; border-radius: 8px;
+      background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 600; cursor: pointer; }
+    button[hidden] { display: none; }
+    footer { padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+  </style>
+</head>
+<body>
+  <header><img src="icons/icon32.png" alt="">Claude ↔ ChatGPT Görsel Köprüsü</header>
+  <dl>
+    <dt>Köprü</dt><dd id="conn">…</dd>
+    <dt>Proje</dt><dd id="project">…</dd>
+    <dt>İş</dt><dd id="job">…</dd>
+  </dl>
+  <div id="hint"></div>
+  <button id="pick" hidden></button>
+  <footer>Sürüm <span id="ver">?</span> · Görseller arka planda üretilir; aktif sekmen değişmez.</footer>
+  <script src="popup.js"></script>
+</body>
+</html>
