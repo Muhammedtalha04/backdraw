@@ -16,7 +16,7 @@ const SRC = __dirname;
 const DEST = path.join(os.homedir(), '.claude', 'chatgpt-image-bridge');
 const REG_SUBKEY = `Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST_NAME}`;
 const REG_KEY = `HKCU\\${REG_SUBKEY}`;
-const FILES = ['shared.js', 'host.js', 'mcp-server.js', 'cli.js', 'install.js', 'README.md', 'extension'];
+const FILES = ['package.json', 'LICENSE', 'shared.js', 'host.js', 'mcp-server.js', 'cli.js', 'install.js', 'README.md', 'extension'];
 const NODE = process.execPath;
 
 function readJson(file, fallback) {

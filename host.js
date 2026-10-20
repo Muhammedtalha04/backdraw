@@ -10,7 +10,7 @@ const os = require('os');
 const path = require('path');
 const shared = require('./shared');
 
-const VERSION = '1.1.0';
+const VERSION = shared.VERSION;
 const LOG_FILE = path.join(shared.LOG_DIR, 'host.log');
 const MAX_JOBS = 100;
 // needs_reference: ChatGPT asked for the image to be uploaded again; text_reply: it answered in text.

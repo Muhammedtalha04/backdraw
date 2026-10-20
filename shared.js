@@ -6,6 +6,8 @@ const os = require('os');
 const path = require('path');
 
 const ROOT = __dirname;
+// Single version source; install.js copies package.json next to these files.
+const VERSION = require('./package.json').version;
 const DATA_DIR = path.join(ROOT, 'data');
 const LOG_DIR = path.join(ROOT, 'logs');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
@@ -105,6 +107,6 @@ async function copyResults(job) {
 }
 
 module.exports = {
-  ROOT, DATA_DIR, LOG_DIR, CONFIG_FILE, JOBS_FILE, PREVIEW_DIR, HOST_NAME, PIPE_PATH,
+  VERSION, ROOT, DATA_DIR, LOG_DIR, CONFIG_FILE, JOBS_FILE, PREVIEW_DIR, HOST_NAME, PIPE_PATH,
   NOT_RUNNING, BridgeError, readJson, writeJson, call, readReferences, copyResults,
 };

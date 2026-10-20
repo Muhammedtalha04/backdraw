@@ -6,7 +6,7 @@ const path = require('path');
 const readline = require('readline');
 const bridge = require('./shared');
 
-const SERVER_INFO = { name: 'chatgpt-images', title: 'ChatGPT Images (via Chrome)', version: '1.1.0' };
+const SERVER_INFO = { name: 'chatgpt-images', title: 'ChatGPT Images (via Chrome)', version: bridge.VERSION };
 const FINAL = new Set(['succeeded', 'failed', 'cancelled', 'needs_reference', 'text_reply']);
 // A prompt that asks to change an existing image rather than draw a new one.
 const EDIT_INTENT = /\b(edit|modify|retouch|inpaint|change only|only change|keep (everything|it|the rest)|pixel-identical|same (pose|image|drawing|character))\b|düzenle|değiştir|aynı (kalsın|bırak|tut)|koru(yarak)?\b/i;
