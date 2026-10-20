@@ -6,14 +6,14 @@ const path = require('path');
 const readline = require('readline');
 const identity = require('./identity');
 const bridge = require('./shared');
+const protocol = require('./lib/protocol');
+const { FINAL, DEFAULT_WAIT, waitSeconds, resultLines } = require('./lib/results');
 
 const SERVER_INFO = { name: identity.MCP_NAME, title: identity.PRODUCT, version: bridge.VERSION };
-const FINAL = new Set(['succeeded', 'failed', 'cancelled', 'needs_reference', 'text_reply']);
-// A prompt that asks to change an existing image rather than draw a new one.
-const EDIT_INTENT = /\b(edit|modify|retouch|inpaint|change only|only change|keep (everything|it|the rest)|pixel-identical|same (pose|image|drawing|character))\b|düzenle|değiştir|aynı (kalsın|bırak|tut)|koru(yarak)?\b/i;
 
 const INSTRUCTIONS = `Generates images with the user's own ChatGPT account (already logged in in Google Chrome), with no OpenAI API key and no extra cost.
 - When the user asks for an image "with ChatGPT" (in any language), call generate_image with a detailed, self-contained prompt.
+- generate_image and fetch_images return within about ${DEFAULT_WAIT} seconds. Generating usually takes 1-3 minutes, so the first result is often STILL RUNNING or QUEUED with a job id: keep calling job_status(job_id, wait_seconds=${DEFAULT_WAIT}) until it reports a final status. Do not call generate_image again for the same request while its job is still running.
 - To EDIT an image or keep a character consistent, pass the image file(s) in reference_images (e.g. a file saved by an earlier call). A fresh chat with reference_images is the most reliable way to edit; long revision chains via conversation_url make ChatGPT lose track of earlier images.
 - Read every result line: NEEDS REFERENCE IMAGE means ChatGPT could not reach the image to edit; CHATGPT REPLIED WITHOUT AN IMAGE shows ChatGPT's own text. Never resend the identical prompt in a loop; follow the next step given in the result.
 - An EDIT CHECK warning means ChatGPT drew a new picture instead of editing; tell the user and retry with reference_images in a fresh chat if an exact edit is needed.
@@ -23,6 +23,13 @@ const INSTRUCTIONS = `Generates images with the user's own ChatGPT account (alre
 - If a job timed out but has a conversation link, fetch_images can still download the result later.
 - Report the saved file path(s) and the ChatGPT conversation link to the user.`;
 
+// Shared by the tools that wait for a job.
+const WAIT_SECONDS = {
+  type: 'integer', minimum: 0, maximum: 900, default: DEFAULT_WAIT,
+  description: `Return within this many seconds. The default ${DEFAULT_WAIT} keeps each call under the 60-second tool limit some clients have. ` +
+    'If the job has not finished by then, the result says STILL RUNNING or QUEUED: call job_status with its job_id again.',
+};
+
 const TOOLS = [
   {
     name: 'generate_image',
@@ -30,8 +37,9 @@ const TOOLS = [
     description:
       "Generate or edit an image with ChatGPT through the user's own logged-in ChatGPT account in Google Chrome (no OpenAI API key, no extra cost). " +
       "A new chat is started inside the user's selected ChatGPT Project, in a background tab: the user's active tab, window focus, mouse and keyboard are never touched. " +
-      "Waits for the result and returns: SUCCESS with the saved file path(s) (always kept in the images folder), a preview and the conversation link; " +
-      "or NEEDS REFERENCE IMAGE / CHATGPT REPLIED WITHOUT AN IMAGE together with ChatGPT's own reply text. " +
+      `Waits up to wait_seconds (default ${DEFAULT_WAIT}) and returns: SUCCESS with the saved file path(s) (always kept in the images folder), a preview and the conversation link; ` +
+      "NEEDS REFERENCE IMAGE / CHATGPT REPLIED WITHOUT AN IMAGE together with ChatGPT's own reply text; " +
+      'or, while ChatGPT is still working, STILL RUNNING / QUEUED with a job id: then keep calling job_status with that job_id. ' +
       "Use it whenever the user asks for an image, visual, illustration or concept art with ChatGPT, in any language. " +
       'Write a detailed, self-contained prompt (subject, style, composition, colors, mood, aspect ratio). ' +
       'To edit an image or keep a character consistent, pass the image file(s) in reference_images: a fresh chat with reference_images is the most reliable way to edit.',
@@ -55,10 +63,7 @@ const TOOLS = [
           type: 'string',
           description: "Optional folder to also copy the image(s) into, e.g. the current project's assets folder (absolute path preferred). The central images folder always keeps a copy.",
         },
-        wait_seconds: {
-          type: 'integer', minimum: 0, maximum: 900, default: 300,
-          description: 'How long to wait for the result. If the job is still running after that, use job_status to keep waiting.',
-        },
+        wait_seconds: WAIT_SECONDS,
         include_preview: { type: 'boolean', default: true, description: 'Attach a downscaled preview of the result so you can check it.' },
         send_as_is: { type: 'boolean', default: false, description: 'Send the prompt verbatim, without the short instruction the bridge adds (useful to answer a question ChatGPT asked).' },
       },
@@ -71,18 +76,20 @@ const TOOLS = [
     name: 'job_status',
     title: 'ChatGPT image job status',
     description:
-      'Check a ChatGPT image job by job_id (optionally waiting up to wait_seconds for it to finish). ' +
+      `Check a ChatGPT image job by job_id, waiting up to wait_seconds (default ${DEFAULT_WAIT}) for it to finish; call it again while the result says STILL RUNNING or QUEUED. ` +
       'Without job_id it reports the bridge itself: whether Chrome and the extension are connected, the selected ChatGPT project, the images folder, the queue and recent jobs.',
     inputSchema: {
       type: 'object',
       properties: {
         job_id: { type: 'string', description: 'Job id returned by generate_image (e.g. img_1a2b3c4d).' },
-        wait_seconds: { type: 'integer', minimum: 0, maximum: 900, default: 0, description: 'Wait up to this long for the job to finish.' },
+        wait_seconds: WAIT_SECONDS,
         include_preview: { type: 'boolean', default: true, description: 'Attach the image preview when the job succeeded.' },
       },
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: true, openWorldHint: false },
+    // Not read-only: a finished job's images are copied into the output_dir generate_image asked for
+    // here, and with the short default wait that is where it usually happens. It only adds files, once.
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: 'cancel_job',
@@ -94,26 +101,29 @@ const TOOLS = [
       required: ['job_id'],
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    // Stopping ChatGPT mid-generation can't be undone; cancelling twice changes nothing more.
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
   },
   {
     name: 'fetch_images',
     title: 'Fetch images from a ChatGPT conversation',
     description:
       'Download the generated images of the latest answer in an existing ChatGPT conversation (by its link) without sending anything. ' +
-      'Use it when a job timed out or failed after ChatGPT had started, but the chat finished later, or to save images from an earlier chat.',
+      'Use it when a job timed out or failed after ChatGPT had started, but the chat finished later, or to save images from an earlier chat. ' +
+      `Like generate_image it returns within wait_seconds (default ${DEFAULT_WAIT}); if it says STILL RUNNING or QUEUED, keep calling job_status with its job_id.`,
     inputSchema: {
       type: 'object',
       properties: {
         conversation_url: { type: 'string', description: 'ChatGPT conversation link (https://chatgpt.com/…/c/…).' },
         output_dir: { type: 'string', description: 'Optional folder to also copy the image(s) into (absolute path preferred).' },
-        wait_seconds: { type: 'integer', minimum: 0, maximum: 900, default: 180, description: 'How long to wait for the result.' },
+        wait_seconds: WAIT_SECONDS,
         include_preview: { type: 'boolean', default: true, description: 'Attach a downscaled preview.' },
       },
       required: ['conversation_url'],
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: true, openWorldHint: true },
+    // Not read-only: it saves the downloaded images as new files.
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   {
     name: 'list_projects',
@@ -134,49 +144,91 @@ const TOOLS = [
       },
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
 ];
 
 // ---------------------------------------------------------------- JSON-RPC over stdio
 
-function send(msg) { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n'); }
+const frame = msg => ({ jsonrpc: '2.0', ...msg });
+function send(msg) { process.stdout.write(JSON.stringify(frame(msg)) + '\n'); }
 function logErr(...args) { process.stderr.write(`[${identity.MCP_NAME}] ${args.join(' ')}\n`); }
 
-async function handle(msg) {
-  if (!msg || typeof msg.method !== 'string') return; // responses to requests we never send
+// An error answer leaves the id out when the message had none we can echo (MCP never allows a null id).
+const errorReply = (id, error) => (id === undefined || id === null ? { error } : { id, error });
+const INVALID_REQUEST = { code: -32600, message: 'Invalid Request' };
+
+// Tool calls in progress, by request id. A client's notifications/cancelled marks one, and nothing
+// more is sent for it (no progress, no result). The ChatGPT job keeps running: cancel_job stops that.
+const inFlight = new Map();
+
+// respond sends this message's response; a batch collects them into one array instead.
+async function handle(msg, respond = send) {
+  if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return respond(errorReply(null, INVALID_REQUEST));
+  if (typeof msg.method !== 'string') {
+    // A response (to a request this server never sends) needs no answer; anything else is malformed.
+    if (!('result' in msg) && !('error' in msg)) respond(errorReply(msg.id, INVALID_REQUEST));
+    return;
+  }
   const isRequest = msg.id !== undefined && msg.id !== null;
+  const version = protocol.requestVersion(msg.params);
+  if (version !== null && !protocol.SUPPORTED_VERSIONS.includes(version)) {
+    if (isRequest) respond({ id: msg.id, error: protocol.unsupportedVersion(version) });
+    return;
+  }
+  // A notification never gets a response, whatever its method.
+  if (!isRequest) {
+    const call = msg.method === 'notifications/cancelled' && msg.params && inFlight.get(msg.params.requestId);
+    if (call) call.cancelled = true;
+    return;
+  }
+  // 2026-07-28 also requires _meta clientCapabilities on every request. A request without it is
+  // served as if it declared none: this server never reads client capabilities, and refusing would
+  // only break image generation for a client that leaves out a field nothing here uses.
+  const modern = protocol.MODERN_VERSIONS.includes(version);
+  const reply = result => respond({ id: msg.id, result: modern ? protocol.modernResult(msg.method, result, SERVER_INFO) : result });
   try {
     switch (msg.method) {
       case 'initialize': {
-        const asked = msg.params && msg.params.protocolVersion;
-        const protocolVersion = /^\d{4}-\d{2}-\d{2}$/.test(asked || '') ? asked : '2025-06-18';
-        return send({ id: msg.id, result: { protocolVersion, capabilities: { tools: { listChanged: false } }, serverInfo: SERVER_INFO, instructions: INSTRUCTIONS } });
+        const protocolVersion = protocol.negotiateLegacy(msg.params && msg.params.protocolVersion);
+        return respond({ id: msg.id, result: { protocolVersion, capabilities: { tools: { listChanged: false } }, serverInfo: SERVER_INFO, instructions: INSTRUCTIONS } });
       }
-      case 'ping': return isRequest && send({ id: msg.id, result: {} });
-      case 'tools/list': return send({ id: msg.id, result: { tools: TOOLS } });
+      case 'server/discover': return respond({ id: msg.id, result: protocol.discoverResult(SERVER_INFO, INSTRUCTIONS) });
+      case 'ping': return reply({}); // legacy only, but harmless to answer
+      case 'tools/list': return reply({ tools: TOOLS });
       case 'tools/call': {
         const p = msg.params || {};
-        const result = await callTool(p.name, p.arguments || {}, p._meta && p._meta.progressToken);
-        return send({ id: msg.id, result });
+        const call = { progressToken: p._meta && p._meta.progressToken, cancelled: false };
+        inFlight.set(msg.id, call);
+        try {
+          const result = await callTool(p.name, p.arguments || {}, call);
+          if (!call.cancelled) reply(result);
+        } finally {
+          inFlight.delete(msg.id);
+        }
+        return;
       }
-      case 'resources/list': return send({ id: msg.id, result: { resources: [] } });
-      case 'prompts/list': return send({ id: msg.id, result: { prompts: [] } });
+      case 'resources/list': return reply({ resources: [] });
+      case 'prompts/list': return reply({ prompts: [] });
       default:
-        if (isRequest) send({ id: msg.id, error: { code: -32601, message: `Method not found: ${msg.method}` } });
+        respond({ id: msg.id, error: { code: -32601, message: `Method not found: ${msg.method}` } });
     }
   } catch (e) {
     logErr('request failed:', e.stack || e);
-    if (isRequest) send({ id: msg.id, error: { code: -32603, message: String(e.message || e) } });
+    respond({ id: msg.id, error: { code: -32603, message: String(e.message || e) } });
   }
 }
 
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
-rl.on('line', line => {
+rl.on('line', async line => {
   if (!line.trim()) return;
   let msg;
-  try { msg = JSON.parse(line); } catch { return send({ id: null, error: { code: -32700, message: 'Parse error' } }); }
-  handle(msg);
+  try { msg = JSON.parse(line); } catch { return send(errorReply(null, { code: -32700, message: 'Parse error' })); }
+  if (!Array.isArray(msg) || !msg.length) return handle(msg);
+  // A JSON-RPC batch (2025-03-26 clients may send one): all its responses go back in one array.
+  const responses = [];
+  await Promise.all(msg.map(m => handle(m, r => responses.push(frame(r)))));
+  if (responses.length) process.stdout.write(JSON.stringify(responses) + '\n');
 });
 rl.on('close', () => process.exit(0));
 
@@ -184,15 +236,19 @@ rl.on('close', () => process.exit(0));
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const textResult = (text, isError = false) => ({ content: [{ type: 'text', text }], isError });
-function intArg(v, lo, hi, dflt) { const n = Number.isFinite(Number(v)) ? Math.round(Number(v)) : dflt; return Math.min(hi, Math.max(lo, n)); }
+// The wait counts from the start of the tool call: starting a job with reference images can take
+// a few seconds itself, and the whole call has to fit in the client's tool-call limit.
+const deadlineFrom = args => Date.now() + waitSeconds(args) * 1000;
+const secondsLeft = deadline => Math.max(0, (deadline - Date.now()) / 1000);
 
-async function callTool(name, args, progressToken) {
+// call: { progressToken, cancelled } of the tools/call request.
+async function callTool(name, args, call) {
   try {
     switch (name) {
-      case 'generate_image': return await generateImage(args, progressToken);
-      case 'job_status': return await jobStatus(args, progressToken);
-      case 'cancel_job': return await cancelJob(args);
-      case 'fetch_images': return await fetchImages(args, progressToken);
+      case 'generate_image': return await generateImage(args, call);
+      case 'job_status': return await jobStatus(args, call);
+      case 'cancel_job': return await cancelJob(args, call);
+      case 'fetch_images': return await fetchImages(args, call);
       case 'list_projects': return await listProjects();
       case 'select_project': return await selectProject(args);
       default: return textResult(`Unknown tool: ${name}`, true);
@@ -202,7 +258,8 @@ async function callTool(name, args, progressToken) {
   }
 }
 
-async function generateImage(args, progressToken) {
+async function generateImage(args, call) {
+  const deadline = deadlineFrom(args);
   const prompt = String(args.prompt || '').trim();
   if (!prompt) return textResult('prompt is required.', true);
   const references = bridge.readReferences(args.reference_images);
@@ -211,41 +268,52 @@ async function generateImage(args, progressToken) {
     copyTo: args.output_dir ? path.resolve(String(args.output_dir)) : undefined,
     startUrl: args.conversation_url ? String(args.conversation_url) : undefined,
   }, 60000);
-  const done = await waitForJob(job.id, intArg(args.wait_seconds, 0, 900, 300), progressToken);
+  const done = await waitForJob(job.id, secondsLeft(deadline), call);
   return jobResult(await finish(done), args.include_preview !== false);
 }
 
-async function fetchImages(args, progressToken) {
+async function fetchImages(args, call) {
+  const deadline = deadlineFrom(args);
   const url = String(args.conversation_url || '').trim();
   if (!url) return textResult('conversation_url is required.', true);
   const copyTo = args.output_dir ? path.resolve(String(args.output_dir)) : undefined;
   const job = await bridge.call('generate', { mode: 'collect', startUrl: url, copyTo });
-  const done = await waitForJob(job.id, intArg(args.wait_seconds, 0, 900, 180), progressToken);
+  const done = await waitForJob(job.id, secondsLeft(deadline), call);
   return jobResult(await finish(done), args.include_preview !== false);
 }
 
-async function jobStatus(args, progressToken) {
+async function jobStatus(args, call) {
   if (!args.job_id) return bridgeStatus();
-  const job = await waitForJob(String(args.job_id).trim(), intArg(args.wait_seconds, 0, 900, 0), progressToken);
+  const id = String(args.job_id).trim();
+  const job = await waitForJob(id, secondsLeft(deadlineFrom(args)), call, toldUser.has(id));
   return jobResult(await finish(job), args.include_preview !== false);
 }
 
-async function cancelJob(args) {
+async function cancelJob(args, call) {
   const id = String(args.job_id || '').trim();
   if (!id) return textResult('job_id is required.', true);
   await bridge.call('cancel', { jobId: id });
-  return jobResult(await waitForJob(id, 25), false);
+  // A job being cancelled needs nothing from the user any more: wait for it to stop instead.
+  return jobResult(await waitForJob(id, 25, call, true), false);
 }
 
 const finish = job => bridge.copyResults(job);
 
-async function waitForJob(jobId, waitSeconds, progressToken) {
-  const deadline = Date.now() + waitSeconds * 1000;
+// Jobs whose current NEEDS USER ACTION the client has already been given.
+const toldUser = new Set();
+
+// A job that starts to need the user (login or CAPTCHA) returns at once so the user can be asked.
+// humanKnown: the client already knows the job needs the user, so while it still does it is waited
+// on like a running one (no instant answers to a polling loop); needing the user again after that
+// is new and returns at once.
+async function waitForJob(jobId, seconds, call, humanKnown = false) {
+  const deadline = Date.now() + seconds * 1000;
   let job = await bridge.call('job', { jobId });
   let tick = 0;
   let lastNote = '';
   let lastSent = 0;
-  while (!FINAL.has(job.status) && job.status !== 'needs_human' && Date.now() < deadline) {
+  let known = humanKnown && job.status === 'needs_human';
+  while (!call.cancelled && !FINAL.has(job.status) && (known || job.status !== 'needs_human') && Date.now() < deadline) {
     await sleep(1500);
     try {
       job = await bridge.call('job', { jobId });
@@ -255,8 +323,10 @@ async function waitForJob(jobId, waitSeconds, progressToken) {
       }
       throw e;
     }
+    known = known && job.status === 'needs_human';
     const note = `${job.status}: ${job.message || job.step}`;
-    if (progressToken !== undefined && (note !== lastNote || Date.now() - lastSent > 10000)) {
+    const { progressToken } = call;
+    if (progressToken !== undefined && !call.cancelled && (note !== lastNote || Date.now() - lastSent > 10000)) {
       send({ method: 'notifications/progress', params: { progressToken, progress: ++tick, message: note } });
       lastNote = note;
       lastSent = Date.now();
@@ -265,67 +335,9 @@ async function waitForJob(jobId, waitSeconds, progressToken) {
   return job;
 }
 
-function editCheckLines(job) {
-  const check = job.editCheck;
-  if (!check || !check.results || !check.results.length) return [];
-  // Each result is an output image's closest match; judge by the least similar output.
-  const worst = check.results.reduce((a, b) => (b.similarity < a.similarity ? b : a));
-  const pct = Math.round(worst.similarity * 100);
-  if (worst.similarity >= 0.75) return [`Edit check: ${pct}% of the image is unchanged compared with ${worst.against} — this looks like a real edit (edited: true).`];
-  if (EDIT_INTENT.test(job.prompt || '')) {
-    return [`⚠ EDIT CHECK (edited: false): only ${pct}% of the image matches ${worst.against}. ChatGPT most likely drew a NEW picture instead of editing (a real local edit keeps ~95-100%). ` +
-      'Tell the user; if an exact edit is needed, call generate_image again WITHOUT conversation_url and with reference_images=[the original image file].'];
-  }
-  return [`Similarity to ${worst.against}: ${pct}% (a local edit keeps ~95-100%, a redraw is usually under 60%).`];
-}
-
 function jobResult(job, includePreview) {
-  const lines = [];
-  switch (job.status) {
-    case 'succeeded':
-      lines.push(`SUCCESS — ChatGPT generated ${job.images.length} image(s). Job ${job.id}.`);
-      break;
-    case 'needs_reference':
-      lines.push(`NEEDS REFERENCE IMAGE — ChatGPT could not access the image it should edit and asked for it to be uploaded again (job ${job.id}).${job.reattached ? ' It still asked after the bridge re-attached the image.' : ''}`,
-        'Do NOT resend the same prompt. Next step: call generate_image again with reference_images=[the local file of the image to edit] — most reliable WITHOUT conversation_url (a fresh chat). ' +
-        'Alternatively pass auto_reattach=true to let the bridge attach the chat\'s latest image itself.');
-      break;
-    case 'text_reply':
-      lines.push(`CHATGPT REPLIED WITHOUT AN IMAGE (job ${job.id}). Read its reply below and act on it — do not resend the identical prompt. ` +
-        'If it asked a question, answer it with generate_image(conversation_url=<the link below>, prompt=<your answer>, send_as_is=true); if it refused, rephrase the request.');
-      break;
-    case 'failed':
-      lines.push(`FAILED — ${job.error || 'unknown error'} (job ${job.id})`);
-      break;
-    case 'cancelled':
-      lines.push(`CANCELLED — job ${job.id}.`);
-      break;
-    case 'needs_human':
-      lines.push(`NEEDS USER ACTION — ${job.message} (job ${job.id})`,
-        'Ask the user to open the ChatGPT tab in Chrome and complete it themselves; do not try to bypass it. ' +
-        'The job continues automatically for up to 10 minutes; check it with job_status.');
-      break;
-    case 'queued':
-      lines.push(`QUEUED — waiting behind another job (position ${job.queuePosition || '?'}). Job ${job.id}; check it with job_status.`);
-      break;
-    default:
-      lines.push(`STILL RUNNING — ${job.message || job.step}. Job ${job.id}; call job_status with wait_seconds to keep waiting, or cancel_job to stop it.`);
-  }
-  if (job.conversationUrl) lines.push(`ChatGPT conversation: ${job.conversationUrl}`);
-  if (job.references && job.references.length) lines.push(`Reference images attached: ${job.references.map(r => r.name).join(', ')}`);
-  if (job.reattached && job.status === 'succeeded') lines.push('Note: ChatGPT first asked for the image again; the bridge re-attached it and asked once more.');
-  for (const im of job.images || []) lines.push(`Saved: ${im.path}${im.width ? ` (${im.width}x${im.height})` : ''}`);
-  for (const c of job.copies || []) lines.push(`Copied to: ${c}`);
-  if (job.copyError) lines.push(`Could not copy into output_dir: ${job.copyError}`);
-  lines.push(...editCheckLines(job));
-  if (job.assistantText) {
-    lines.push(job.status === 'succeeded' ? `ChatGPT's text: ${job.assistantText.slice(0, 1500)}` : `ChatGPT's reply:\n${job.assistantText.slice(0, 3000)}`);
-  }
-  if (job.chatImages && job.chatImages.length) {
-    lines.push('Images already saved from this chat (newest first) — usable as reference_images:');
-    for (const im of job.chatImages) lines.push(`- ${im.path}  (${im.job}: "${im.prompt}")`);
-  }
-  const content = [{ type: 'text', text: lines.join('\n') }];
+  if (job.status === 'needs_human') toldUser.add(job.id); else toldUser.delete(job.id);
+  const content = [{ type: 'text', text: resultLines(job).join('\n') }];
   if (includePreview && job.status === 'succeeded') {
     for (const im of job.images) {
       try {
