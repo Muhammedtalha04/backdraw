@@ -1,3 +1,5 @@
+> **Work in progress:** this project is being rebranded to Backdraw. Full documentation is coming.
+
 # Claude ↔ ChatGPT Görsel Köprüsü
 
 Claude Code, Chrome'da zaten giriş yapmış olduğun ChatGPT hesabınla görsel üretir.
