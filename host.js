@@ -155,7 +155,7 @@ function createJob(p) {
   }
   if (!startUrl && !config.project) {
     throw new shared.BridgeError('No ChatGPT project is selected yet. Call list_projects, then select_project ' +
-      'with the images project (for example "Claude Görselleri").', 'NO_PROJECT');
+      "with the user's images project.", 'NO_PROJECT');
   }
   for (const key of ['outputDir', 'copyTo']) {
     if (p[key] && !path.isAbsolute(p[key])) throw new shared.BridgeError('output_dir must be an absolute folder path.', 'BAD_REQUEST');

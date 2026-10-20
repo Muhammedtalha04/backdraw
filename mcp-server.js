@@ -12,13 +12,13 @@ const FINAL = new Set(['succeeded', 'failed', 'cancelled', 'needs_reference', 't
 const EDIT_INTENT = /\b(edit|modify|retouch|inpaint|change only|only change|keep (everything|it|the rest)|pixel-identical|same (pose|image|drawing|character))\b|düzenle|değiştir|aynı (kalsın|bırak|tut)|koru(yarak)?\b/i;
 
 const INSTRUCTIONS = `Generates images with the user's own ChatGPT account (already logged in in Google Chrome), with no OpenAI API key and no extra cost.
-- When the user asks for an image "with ChatGPT" (e.g. "ChatGPT ile ... görsel üret"), call generate_image with a detailed, self-contained prompt.
+- When the user asks for an image "with ChatGPT" (in any language), call generate_image with a detailed, self-contained prompt.
 - To EDIT an image or keep a character consistent, pass the image file(s) in reference_images (e.g. a file saved by an earlier call). A fresh chat with reference_images is the most reliable way to edit; long revision chains via conversation_url make ChatGPT lose track of earlier images.
 - Read every result line: NEEDS REFERENCE IMAGE means ChatGPT could not reach the image to edit; CHATGPT REPLIED WITHOUT AN IMAGE shows ChatGPT's own text. Never resend the identical prompt in a loop; follow the next step given in the result.
 - An EDIT CHECK warning means ChatGPT drew a new picture instead of editing; tell the user and retry with reference_images in a fresh chat if an exact edit is needed.
 - The work happens in a background Chrome tab; never tell the user to switch tabs unless a result says NEEDS USER ACTION.
 - NEEDS USER ACTION means ChatGPT shows a login or human-verification (CAPTCHA) page: ask the user to open the ChatGPT tab in Chrome and finish it themselves. Never try to bypass it. The job continues automatically afterwards (check with job_status).
-- If no project is selected, call list_projects, then select_project with the user's images project (usually "Claude Görselleri").
+- If no project is selected, call list_projects, then select_project with the user's images project.
 - If a job timed out but has a conversation link, fetch_images can still download the result later.
 - Report the saved file path(s) and the ChatGPT conversation link to the user.`;
 
@@ -29,9 +29,9 @@ const TOOLS = [
     description:
       "Generate or edit an image with ChatGPT through the user's own logged-in ChatGPT account in Google Chrome (no OpenAI API key, no extra cost). " +
       "A new chat is started inside the user's selected ChatGPT Project, in a background tab: the user's active tab, window focus, mouse and keyboard are never touched. " +
-      "Waits for the result and returns: SUCCESS with the saved file path(s) (always kept in the user's 'ChatGPT Görselleri' folder), a preview and the conversation link; " +
+      "Waits for the result and returns: SUCCESS with the saved file path(s) (always kept in the images folder), a preview and the conversation link; " +
       "or NEEDS REFERENCE IMAGE / CHATGPT REPLIED WITHOUT AN IMAGE together with ChatGPT's own reply text. " +
-      "Use it whenever the user asks for an image, visual, illustration or concept art with ChatGPT (e.g. 'ChatGPT ile ... görsel üret'). " +
+      "Use it whenever the user asks for an image, visual, illustration or concept art with ChatGPT, in any language. " +
       'Write a detailed, self-contained prompt (subject, style, composition, colors, mood, aspect ratio). ' +
       'To edit an image or keep a character consistent, pass the image file(s) in reference_images: a fresh chat with reference_images is the most reliable way to edit.',
     inputSchema: {
@@ -124,7 +124,7 @@ const TOOLS = [
   {
     name: 'select_project',
     title: 'Select the ChatGPT project for images',
-    description: 'Select and remember the ChatGPT Project where new image chats are created. Pass the project name as shown in ChatGPT (matched loosely, e.g. "Claude Görselleri") or its https://chatgpt.com/g/g-p-…/project link.',
+    description: 'Select and remember the ChatGPT Project where new image chats are created. Pass the project name as shown in ChatGPT (matched loosely) or its https://chatgpt.com/g/g-p-…/project link.',
     inputSchema: {
       type: 'object',
       properties: {

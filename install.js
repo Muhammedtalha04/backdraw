@@ -119,18 +119,18 @@ async function install() {
   const mcp = registerMcp(path.join(DEST, 'mcp-server.js'));
   const reloaded = await reloadRunningExtension();
 
-  console.log(`Kurulum tamam.
-  Klasör            : ${DEST}
-  Chrome host kaydı : ${REG_KEY}
+  console.log(`Install complete.
+  Folder            : ${DEST}
+  Chrome host entry : ${REG_KEY}
   Claude Code MCP   : ${mcp}
-  Görsel klasörü    : ${cfg.outputDir}
-  Eklenti kimliği   : ${id}
-${reloaded ? '\nÇalışan eklenti yeni sürümle yeniden yüklendi.' : `
-Chrome eklentisini bir kez yükle:
-  1) Chrome'da chrome://extensions adresini aç, sağ üstten "Geliştirici modu"nu aç.
-  2) "Paketlenmemiş öğe yükle" ye tıkla ve şu klasörü seç:
+  Images folder     : ${cfg.outputDir}
+  Extension ID      : ${id}
+${reloaded ? '\nThe running extension was reloaded with the new version.' : `
+Load the Chrome extension once:
+  1) Open chrome://extensions in Chrome and turn on "Developer mode" (top right).
+  2) Click "Load unpacked" and select this folder:
      ${path.join(DEST, 'extension')}`}
-Claude Code'da yeni bir oturum açınca "chatgpt-images" araçları hazır olur.`);
+The "chatgpt-images" tools are ready in new Claude Code sessions.`);
 }
 
 function uninstall() {
@@ -138,9 +138,9 @@ function uninstall() {
   try { execFileSync('reg.exe', ['delete', REG_KEY, '/f'], { stdio: 'ignore' }); } catch {}
   const cli = claudeCli();
   if (cli) { try { execFileSync(cli, ['mcp', 'remove', MCP_NAME, '-s', 'user'], { stdio: 'ignore' }); } catch {} }
-  console.log(`Kaldırıldı: Chrome host kaydı ve Claude Code MCP girdisi.
-Kalan adımlar: chrome://extensions sayfasından eklentiyi kaldır; istersen ${DEST} klasörünü sil (görsellerin ayrı klasörde durur).`);
+  console.log(`Removed: the Chrome host entry and the Claude Code MCP entry.
+Remaining steps: remove the extension at chrome://extensions; optionally delete ${DEST} (your images are kept in a separate folder).`);
 }
 
 if (process.argv.includes('--uninstall')) uninstall();
-else install().catch(e => { console.error(`Kurulum başarısız: ${e.message}`); process.exitCode = 1; });
+else install().catch(e => { console.error(`Install failed: ${e.message}`); process.exitCode = 1; });

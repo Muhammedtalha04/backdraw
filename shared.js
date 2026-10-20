@@ -18,8 +18,8 @@ const USER_TAG = (os.userInfo().username || 'user').replace(/[^A-Za-z0-9_.-]/g, 
 const PIPE_PATH = process.env.CGB_PIPE || `\\\\.\\pipe\\chatgpt-image-bridge-${USER_TAG}`; // override: tests only
 
 const NOT_RUNNING =
-  'The ChatGPT bridge is not running: Google Chrome is closed, or the "Claude ChatGPT Görsel Köprüsü" ' +
-  'extension is not loaded/enabled. Ask the user to open Chrome; the extension connects by itself.';
+  'The ChatGPT bridge is not running: Google Chrome is closed, or the browser extension ' +
+  'is not loaded/enabled. Ask the user to open Chrome; the extension connects by itself.';
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }

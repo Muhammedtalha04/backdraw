@@ -3,19 +3,19 @@
 const path = require('path');
 const bridge = require('./shared');
 
-const USAGE = `Kullanım: node cli.js <komut>
-  status                          Köprü durumu (Chrome bağlı mı, seçili proje, kuyruk)
-  projects                        ChatGPT projelerini listele
-  select <ad | link>              Görsellerin üretileceği projeyi seç
-  generate "<istem>" [--ref GÖRSEL]... [--url SOHBET_LİNKİ] [--reattach] [--out KLASÖR] [--raw] [--wait 300]
-                                  Görsel üret; --ref ile referans/düzenlenecek görsel ekle (en fazla 4)
-  collect <sohbet linki> [--out KLASÖR]   Mevcut bir sohbetteki son görselleri indir (mesaj göndermez)
-  job <id> [--wait 60]            İş durumunu göster
-  cancel <id>                     İşi iptal et
-  outdir <klasör>                 Merkezi görsel klasörünü değiştir
-  debug on|off                    Ayrıntılı kayıt (logs/host.log)
-  diagnose [link] [--selector CSS] [--max N] [--worker]   Sayfa tanılama
-  reload                          Chrome eklentisini yeniden yükle`;
+const USAGE = `Usage: node cli.js <command>
+  status                          Bridge status (Chrome connected, selected project, queue)
+  projects                        List ChatGPT projects
+  select <name | link>            Select the project where images are generated
+  generate "<prompt>" [--ref IMAGE]... [--url CHAT_LINK] [--reattach] [--out FOLDER] [--raw] [--wait 300]
+                                  Generate an image; --ref attaches a reference/image to edit (up to 4)
+  collect <chat link> [--out FOLDER]   Download the latest images of an existing chat (sends nothing)
+  job <id> [--wait 60]            Show a job's status
+  cancel <id>                     Cancel a job
+  outdir <folder>                 Change the central images folder
+  debug on|off                    Verbose logging (logs/host.log)
+  diagnose [link] [--selector CSS] [--max N] [--worker]   Page diagnostics
+  reload                          Reload the Chrome extension`;
 
 const FINAL = new Set(['succeeded', 'failed', 'cancelled', 'needs_reference', 'text_reply']);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -58,23 +58,23 @@ async function main() {
     case 'projects': return print(await bridge.call('list_projects', {}, 130000));
     case 'select': {
       const v = pos.join(' ');
-      if (!v) throw new Error('Proje adı veya linki gerekli.');
+      if (!v) throw new Error('A project name or link is required.');
       return print(await bridge.call('select_project', /^https?:\/\//i.test(v) ? { url: v } : { name: v }, 130000));
     }
     case 'generate': {
       const prompt = pos.join(' ');
-      if (!prompt) throw new Error('İstem gerekli.');
+      if (!prompt) throw new Error('A prompt is required.');
       const job = await bridge.call('generate', {
         prompt, copyTo, references: bridge.readReferences(flags.ref ? [].concat(flags.ref) : []),
         startUrl: typeof flags.url === 'string' ? flags.url : undefined, sendAsIs: !!flags.raw, autoReattach: !!flags.reattach,
       }, 60000);
-      console.error(`İş: ${job.id}`);
+      console.error(`Job: ${job.id}`);
       return print(await follow(job.id, Number(flags.wait) || 600));
     }
     case 'collect': {
-      if (!pos[0]) throw new Error('Sohbet linki gerekli.');
+      if (!pos[0]) throw new Error('A chat link is required.');
       const job = await bridge.call('generate', { mode: 'collect', startUrl: pos[0], copyTo });
-      console.error(`İş: ${job.id}`);
+      console.error(`Job: ${job.id}`);
       return print(await follow(job.id, Number(flags.wait) || 300));
     }
     case 'job': return print(await follow(pos[0], Number(flags.wait) || 0));
@@ -91,4 +91,4 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error(`Hata: ${e.message}`); process.exitCode = 1; });
+main().catch(e => { console.error(`Error: ${e.message}`); process.exitCode = 1; });
