@@ -6,6 +6,10 @@ logs/
 /host.bat
 /com.*.json
 
+# Local assistant files (not part of the public repo)
+/CLAUDE.md
+/.claude/
+
 # Dependencies
 node_modules/
 
