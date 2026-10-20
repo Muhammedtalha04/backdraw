@@ -21,3 +21,6 @@ node_modules/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Overnight work report (local only)
+/NIGHT_REPORT.md
