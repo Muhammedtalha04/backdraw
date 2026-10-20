@@ -41,15 +41,27 @@ function desktopConfigFiles() {
   return files.filter(f => fs.existsSync(f));
 }
 
-// True while the Claude desktop app runs (it rewrites its config on exit). Claude Code's own
-// claude.exe has the same process name but lives elsewhere; a process whose path can't be read
-// counts as running, to be safe.
-function desktopAppRunning() {
-  const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-    "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-Process -Name claude -ErrorAction SilentlyContinue | ForEach-Object { if ($_.Path) { $_.Path } else { '?' } }"],
-  { encoding: 'utf8' });
-  return out.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+// Reads the output of the process query below: one executable path per line, '?' when a path
+// can't be read. Claude Code's own claude.exe has the same process name but lives elsewhere and
+// doesn't count; an unreadable path counts as the desktop app, to be safe.
+function parseClaudeProcesses(out) {
+  return String(out || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
     .some(p => p === '?' || /\\WindowsApps\\|\\AnthropicClaude\\/i.test(p));
+}
+
+// True while the Claude desktop app runs (it rewrites its config on exit), false when it doesn't,
+// null when that can't be told (PowerShell failed). With no claude process Get-Process reports an
+// error even when silenced, so the script collects the result and exits 0 explicitly.
+function desktopAppRunning() {
+  let out;
+  try {
+    out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $p = @(Get-Process -Name claude -ErrorAction SilentlyContinue | ForEach-Object { if ($_.Path) { $_.Path } else { '?' } }); $p; exit 0"],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return null;
+  }
+  return parseClaudeProcesses(out);
 }
 
 const regSubkey = hostName => `Software\\Google\\Chrome\\NativeMessagingHosts\\${hostName}`;
@@ -62,7 +74,7 @@ function realRegistry(hostName, action, value = '') {
 $hk = [uint32]2147483649
 $k = '${regSubkey(hostName)}'
 function Reg($m, $a) { Invoke-CimMethod -Namespace root/default -ClassName StdRegProv -MethodName $m -Arguments $a }
-if ('${action}' -eq 'delete') { [void](Reg 'DeleteKey' @{ hDefKey = $hk; sSubKeyName = $k }); exit }
+if ('${action}' -eq 'delete') { [void](Reg 'DeleteKey' @{ hDefKey = $hk; sSubKeyName = $k }); exit 0 }
 [void](Reg 'CreateKey' @{ hDefKey = $hk; sSubKeyName = $k })
 $r = Reg 'SetStringValue' @{ hDefKey = $hk; sSubKeyName = $k; sValueName = ''; sValue = $env:BACKDRAW_VALUE }
 if ($r.ReturnValue -ne 0) { throw "SetStringValue returned $($r.ReturnValue)" }
@@ -110,7 +122,7 @@ function claudeCli() {
 }
 
 module.exports = {
-  pipePath, installDir, legacyInstallDir, claudeConfigFile, desktopConfigFiles, desktopAppRunning,
+  pipePath, installDir, legacyInstallDir, claudeConfigFile, desktopConfigFiles, desktopAppRunning, parseClaudeProcesses,
   writeHostLauncher, registerNativeHost, unregisterNativeHost,
   picturesDir, claudeCli,
 };

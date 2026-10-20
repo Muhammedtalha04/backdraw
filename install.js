@@ -128,8 +128,11 @@ function desktop() {
   if (!fs.existsSync(server)) throw new Error(`Backdraw is not installed in ${dest} yet; run node install.js first.`);
   const files = platform.desktopConfigFiles();
   if (!files.length) return console.log('No Claude desktop app config was found; nothing to change.');
-  if (platform.desktopAppRunning()) {
-    console.log(`The Claude desktop app is running, so its config was not changed (Claude rewrites it on exit).
+  const running = platform.desktopAppRunning();
+  if (running !== false) {
+    console.log(`${running === null
+      ? 'Could not tell whether the Claude desktop app is running (PowerShell failed), so its config was not changed.'
+      : 'The Claude desktop app is running, so its config was not changed (Claude rewrites it on exit).'}
 Quit Claude completely (also from the system tray), then run this from PowerShell:
   ${desktopCommand(dest, '--desktop')}`);
     process.exitCode = 1;
@@ -224,9 +227,9 @@ Load the Chrome extension once:
   if (staleDesktop.length) {
     const running = platform.desktopAppRunning();
     lines.push(`
-Claude desktop app: its chat config does not use Backdraw yet. ${running
-    ? 'Claude is running, so it was left alone. Quit Claude completely (also from the system tray), then run this from PowerShell:'
-    : 'To update it, run:'}
+Claude desktop app: its chat config does not use Backdraw yet. ${running === false
+    ? 'To update it, run:'
+    : `${running ? 'Claude is running' : 'Could not tell whether Claude is running'}, so it was left alone. Quit Claude completely (also from the system tray), then run this from PowerShell:`}
   ${desktopCommand(dest, '--desktop')}`);
   }
   lines.push(`The "${identity.MCP_NAME}" tools are ready in new Claude Code sessions.`);
@@ -241,8 +244,9 @@ function uninstall() {
   const lines = [`Removed: the Chrome host entries (${identity.HOST_NAME}, ${LEGACY.HOST_NAME}) and the Claude Code MCP entries ("${identity.MCP_NAME}", "${LEGACY.MCP_NAME}").`];
 
   const desktopFiles = platform.desktopConfigFiles().filter(f => desktopNeedsUpdate(f, null, true));
-  if (desktopFiles.length && platform.desktopAppRunning()) {
-    lines.push(`The Claude desktop app is running, so its chat config was left alone. Quit Claude completely, then run this again from PowerShell:
+  const desktopRunning = desktopFiles.length ? platform.desktopAppRunning() : false;
+  if (desktopRunning !== false) {
+    lines.push(`${desktopRunning ? 'The Claude desktop app is running' : 'Could not tell whether the Claude desktop app is running'}, so its chat config was left alone. Quit Claude completely, then run this again from PowerShell:
   ${desktopCommand(fs.existsSync(path.join(dest, 'install.js')) ? dest : SRC, '--uninstall')}`);
   } else {
     for (const file of desktopFiles) {
