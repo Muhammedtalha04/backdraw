@@ -10,6 +10,9 @@ const os = require('os');
 const path = require('path');
 const identity = require('./identity');
 const shared = require('./shared');
+const { stamp, slugify, sniffExt } = require('./lib/naming');
+const { normName, parseProjectUrl, pickProject } = require('./lib/projects');
+const { buildText } = require('./lib/prompt');
 
 const VERSION = shared.VERSION;
 const LOG_FILE = path.join(shared.LOG_DIR, 'host.log');
@@ -189,19 +192,6 @@ function createJob(p) {
   return job;
 }
 
-// The wording nudges ChatGPT to call its image tool instead of asking questions first.
-function buildText(job) {
-  if (job.sendAsIs) return job.prompt;
-  if (job.references && job.references.length) {
-    const what = job.references.length > 1 ? 'The attached images are references' : 'The attached image is the reference';
-    return `${what}. Follow the instructions below; when they ask for an edit, change only what is asked and keep everything else identical. Don't ask follow-up questions; generate the image directly.\n\n${job.prompt}`;
-  }
-  if (job.startUrl && /\/c\/[0-9a-f-]{8,}/i.test(job.startUrl)) {
-    return `Update the image with the changes below and generate the new image directly, without follow-up questions.\n\n${job.prompt}`;
-  }
-  return `Generate an image from the description below. Don't ask follow-up questions; create the image directly.\n\n${job.prompt}`;
-}
-
 function pump() {
   if (runningId || !extension) return;
   const job = jobs.find(j => j.status === 'queued');
@@ -299,26 +289,6 @@ function cancelJob(id) {
 
 // ---------------------------------------------------------------- saving images
 
-function stamp(d = new Date()) {
-  const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-}
-
-function slugify(s) {
-  const tr = { ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u', Ç: 'c', Ğ: 'g', İ: 'i', Ö: 'o', Ş: 's', Ü: 'u' };
-  const slug = s.replace(/[çğıöşüÇĞİÖŞÜ]/g, c => tr[c]).normalize('NFKD').replace(/[̀-ͯ]/g, '')
-    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, 48).replace(/-+$/, '');
-  return slug || 'image';
-}
-
-function sniffExt(b) {
-  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e) return 'png';
-  if (b[0] === 0xff && b[1] === 0xd8) return 'jpg';
-  if (b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return 'webp';
-  if (b.subarray(0, 3).toString('latin1') === 'GIF') return 'gif';
-  return null;
-}
-
 function uniquePath(dir, base, ext) {
   let file = path.join(dir, `${base}.${ext}`);
   for (let n = 2; fs.existsSync(file); n++) file = path.join(dir, `${base}_${n}.${ext}`);
@@ -415,35 +385,6 @@ function cleanupPreviews() {
 
 // ---------------------------------------------------------------- projects
 
-function normName(s) {
-  return String(s || '').toLocaleLowerCase('tr').replace(/ı/g, 'i').normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '');
-}
-
-function similarity(a, b) {
-  if (!a || !b) return 0;
-  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    let prev = row[0];
-    row[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const tmp = row[j];
-      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
-      prev = tmp;
-    }
-  }
-  return 1 - row[b.length] / Math.max(a.length, b.length);
-}
-
-function parseProjectUrl(url) {
-  let u;
-  try { u = new URL(String(url)); } catch { return null; }
-  if (!/^(www\.)?chatgpt\.com$/i.test(u.hostname)) return null;
-  const m = u.pathname.match(/^\/g\/(g-p-[0-9a-f]+)(-[^/]*)?(?:\/|$)/i);
-  if (!m) return null;
-  return { id: m[1], url: `https://chatgpt.com/g/${m[1]}${m[2] || ''}/project`, slug: (m[2] || '').slice(1) };
-}
-
 function setProject(p) {
   const parsed = parseProjectUrl(p && p.url);
   if (!parsed) throw new shared.BridgeError('That is not a ChatGPT project link (expected https://chatgpt.com/g/g-p-…/project).', 'BAD_REQUEST');
@@ -456,19 +397,12 @@ function setProject(p) {
 
 async function selectProject(p) {
   if (p.url) return { project: setProject({ url: p.url, name: p.name }) };
-  const wanted = normName(p.name);
-  if (!wanted) throw new shared.BridgeError('Give the project name (or its URL).', 'BAD_REQUEST');
+  if (!normName(p.name)) throw new shared.BridgeError('Give the project name (or its URL).', 'BAD_REQUEST');
   const projects = await askExtension('list_projects', {}, 120000);
-  const scored = projects.map(x => {
-    const n = normName(x.name);
-    const score = n === wanted ? 2 : n && (n.includes(wanted) || wanted.includes(n)) ? 1.5 : similarity(n, wanted);
-    return { ...x, score };
-  }).sort((a, b) => b.score - a.score);
-  const best = scored[0];
+  const { project: best, error, ties } = pickProject(projects, p.name);
   const names = projects.map(x => x.name).join(', ') || '(none)';
-  if (!best || best.score < 0.7) throw new shared.BridgeError(`No ChatGPT project matches "${p.name}". Available projects: ${names}`, 'NOT_FOUND');
-  const ties = scored.filter(x => x.score === best.score);
-  if (ties.length > 1) throw new shared.BridgeError(`"${p.name}" matches several projects: ${ties.map(x => x.name).join(', ')}. Use the exact name or URL.`, 'AMBIGUOUS');
+  if (error === 'NOT_FOUND') throw new shared.BridgeError(`No ChatGPT project matches "${p.name}". Available projects: ${names}`, 'NOT_FOUND');
+  if (error === 'AMBIGUOUS') throw new shared.BridgeError(`"${p.name}" matches several projects: ${ties.map(x => x.name).join(', ')}. Use the exact name or URL.`, 'AMBIGUOUS');
   const chosen = best.url ? best : await askExtension('resolve_project', { name: best.name }, 120000);
   return { project: setProject(chosen), available: projects.map(x => x.name) };
 }

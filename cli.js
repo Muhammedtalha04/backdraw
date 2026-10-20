@@ -2,6 +2,8 @@
 // Command line access to the bridge, for setup and troubleshooting.
 const path = require('path');
 const bridge = require('./shared');
+const { parseArgs } = require('./lib/args');
+const { FINAL } = require('./lib/results');
 
 const USAGE = `Usage: node cli.js <command>
   status                          Bridge status (Chrome connected, selected project, queue)
@@ -17,22 +19,8 @@ const USAGE = `Usage: node cli.js <command>
   diagnose [link] [--selector CSS] [--max N] [--worker]   Page diagnostics
   reload                          Reload the Chrome extension`;
 
-const FINAL = new Set(['succeeded', 'failed', 'cancelled', 'needs_reference', 'text_reply']);
+const FLAGS = { booleans: ['raw', 'reattach', 'worker'], lists: ['ref'] };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-// Repeated flags (--ref a --ref b) become arrays.
-function parse(argv) {
-  const pos = [];
-  const flags = {};
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (!a.startsWith('--')) { pos.push(a); continue; }
-    const key = a.slice(2);
-    const value = i + 1 < argv.length && !argv[i + 1].startsWith('--') ? argv[++i] : true;
-    flags[key] = key in flags ? [].concat(flags[key], value) : value;
-  }
-  return { pos, flags };
-}
 
 const print = v => console.log(JSON.stringify(v, null, 2));
 
@@ -51,7 +39,7 @@ async function follow(jobId, waitSec) {
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
-  const { pos, flags } = parse(rest);
+  const { pos, flags } = parseArgs(rest, FLAGS);
   const copyTo = typeof flags.out === 'string' ? path.resolve(flags.out) : undefined;
   switch (cmd) {
     case 'status': return print(await bridge.call('status'));

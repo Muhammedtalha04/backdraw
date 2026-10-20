@@ -13,7 +13,7 @@ const platform = require('./platform');
 
 const { LEGACY } = identity;
 const SRC = __dirname;
-const FILES = ['package.json', 'LICENSE', 'identity.js', 'shared.js', 'host.js', 'mcp-server.js', 'cli.js', 'install.js', 'README.md', 'extension', 'platform'];
+const FILES = ['package.json', 'LICENSE', 'identity.js', 'shared.js', 'host.js', 'mcp-server.js', 'cli.js', 'install.js', 'README.md', 'extension', 'platform', 'lib'];
 const NODE = process.execPath;
 
 function readJson(file, fallback) {
