@@ -2,8 +2,8 @@
 // Paths, small file helpers and the named-pipe client shared by the MCP server and the CLI.
 const fs = require('fs');
 const net = require('net');
-const os = require('os');
 const path = require('path');
+const platform = require('./platform');
 
 const ROOT = __dirname;
 // Single version source; install.js copies package.json next to these files.
@@ -14,8 +14,10 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const JOBS_FILE = path.join(DATA_DIR, 'jobs.json');
 const PREVIEW_DIR = path.join(DATA_DIR, 'previews');
 const HOST_NAME = 'com.claude.chatgpt_image_bridge';
-const USER_TAG = (os.userInfo().username || 'user').replace(/[^A-Za-z0-9_.-]/g, '_');
-const PIPE_PATH = process.env.CGB_PIPE || `\\\\.\\pipe\\chatgpt-image-bridge-${USER_TAG}`; // override: tests only
+
+// Resolved on first use, so loading this module works on every OS. CGB_PIPE override: tests only.
+let pipePath = null;
+function getPipePath() { return pipePath || (pipePath = process.env.CGB_PIPE || platform.pipePath()); }
 
 const NOT_RUNNING =
   'The ChatGPT bridge is not running: Google Chrome is closed, or the browser extension ' +
@@ -39,7 +41,7 @@ class BridgeError extends Error {
 // One request per connection: write a JSON line, read one JSON line back.
 function call(method, params = {}, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
-    const sock = net.connect(PIPE_PATH);
+    const sock = net.connect(getPipePath());
     let buf = '';
     let done = false;
     const finish = (err, value) => {
@@ -107,6 +109,7 @@ async function copyResults(job) {
 }
 
 module.exports = {
-  VERSION, ROOT, DATA_DIR, LOG_DIR, CONFIG_FILE, JOBS_FILE, PREVIEW_DIR, HOST_NAME, PIPE_PATH,
+  VERSION, ROOT, DATA_DIR, LOG_DIR, CONFIG_FILE, JOBS_FILE, PREVIEW_DIR, HOST_NAME,
   NOT_RUNNING, BridgeError, readJson, writeJson, call, readReferences, copyResults,
+  get PIPE_PATH() { return getPipePath(); },
 };
