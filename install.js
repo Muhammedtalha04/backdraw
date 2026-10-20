@@ -159,10 +159,44 @@ async function reloadRunningExtension(dest) {
   } catch { return false; }
 }
 
+// What to do about the Chrome extension after the files were copied. An unpacked extension is
+// read from disk when Chrome starts or when it is turned on, so a running one only needs a reload;
+// one that can't be reached is either not running or (after a migration) still in the old folder.
+function extensionSteps({ dest, legacyDir, hasLegacy, wasInstalled, reloaded }) {
+  const folder = path.join(dest, 'extension');
+  const check = `node "${path.join(dest, 'cli.js')}" status`;
+  if (reloaded) {
+    return ['\nThe running extension was reloaded with the new version.',
+      ...(hasLegacy ? [`The old folder ${legacyDir} is no longer used; delete it by hand once Backdraw works.`] : [])];
+  }
+  if (hasLegacy) {
+    return [`
+The Chrome extension could not be reached. Either:
+  - Chrome is closed or Backdraw is turned off: open Chrome, or turn Backdraw on at chrome://extensions; it connects by itself.
+  - Or it is still loaded from the old folder ${path.join(legacyDir, 'extension')}: at chrome://extensions remove the old
+    "Claude ChatGPT Görsel Köprüsü" extension, click "Load unpacked" and select ${folder}
+Check the connection: ${check}
+Once Backdraw works, delete the old folder by hand: ${legacyDir}`];
+  }
+  if (wasInstalled) {
+    return [`
+The Chrome extension could not be reached (Chrome is closed or Backdraw is turned off).
+Chrome loads the new files when it starts, or when Backdraw is turned on at chrome://extensions.
+Check the connection: ${check}
+If it was never loaded: open chrome://extensions, turn on "Developer mode", click "Load unpacked" and select ${folder}`];
+  }
+  return [`
+Load the Chrome extension once:
+  1) Open chrome://extensions in Chrome and turn on "Developer mode" (top right).
+  2) Click "Load unpacked" and select this folder:
+     ${folder}`];
+}
+
 async function install() {
   const dest = platform.installDir();
   const legacyDir = platform.legacyInstallDir();
   const hasLegacy = fs.existsSync(legacyDir) && !samePath(legacyDir, dest);
+  const wasInstalled = fs.existsSync(path.join(dest, 'extension', 'manifest.json'));
   if (!samePath(SRC, dest)) {
     fs.mkdirSync(dest, { recursive: true });
     for (const f of FILES) {
@@ -205,24 +239,7 @@ async function install() {
       `  - removed the old Chrome host entry (${LEGACY.HOST_NAME}), if it was there`,
       `  - ${legacyMcpRemoved ? 'removed' : 'no'} old "${LEGACY.MCP_NAME}" Claude Code MCP entry`);
   }
-  if (reloaded) {
-    lines.push('\nThe running extension was reloaded with the new version.');
-    if (hasLegacy) lines.push(`The old folder ${legacyDir} is no longer used; delete it by hand once Backdraw works.`);
-  } else if (hasLegacy) {
-    lines.push(`
-Move the Chrome extension to the new folder (it is still loaded from the old one):
-  1) Open chrome://extensions and remove the old "Claude ChatGPT Görsel Köprüsü" extension.
-  2) Click "Load unpacked" and select this folder:
-     ${path.join(dest, 'extension')}
-  3) Check the connection: node "${path.join(dest, 'cli.js')}" status
-Once Backdraw works, delete the old folder by hand: ${legacyDir}`);
-  } else {
-    lines.push(`
-Load the Chrome extension once:
-  1) Open chrome://extensions in Chrome and turn on "Developer mode" (top right).
-  2) Click "Load unpacked" and select this folder:
-     ${path.join(dest, 'extension')}`);
-  }
+  lines.push(...extensionSteps({ dest, legacyDir, hasLegacy, wasInstalled, reloaded }));
   const staleDesktop = platform.desktopConfigFiles().filter(f => desktopNeedsUpdate(f, desktopEntry(server)));
   if (staleDesktop.length) {
     const running = platform.desktopAppRunning();
@@ -264,4 +281,4 @@ if (require.main === module) {
   Promise.resolve().then(run).catch(e => { console.error(`Setup failed: ${e.message}`); process.exitCode = 1; });
 }
 
-module.exports = { migrateData, updateDesktopConfig, desktopEntry };
+module.exports = { FILES, migrateData, updateDesktopConfig, desktopEntry, extensionSteps };
