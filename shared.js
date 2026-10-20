@@ -3,6 +3,7 @@
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
+const identity = require('./identity');
 const platform = require('./platform');
 
 const ROOT = __dirname;
@@ -13,11 +14,10 @@ const LOG_DIR = path.join(ROOT, 'logs');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const JOBS_FILE = path.join(DATA_DIR, 'jobs.json');
 const PREVIEW_DIR = path.join(DATA_DIR, 'previews');
-const HOST_NAME = 'com.claude.chatgpt_image_bridge';
 
-// Resolved on first use, so loading this module works on every OS. CGB_PIPE override: tests only.
+// Resolved on first use, so loading this module works on every OS. BACKDRAW_PIPE override: tests only.
 let pipePath = null;
-function getPipePath() { return pipePath || (pipePath = process.env.CGB_PIPE || platform.pipePath()); }
+function getPipePath() { return pipePath || (pipePath = process.env[identity.PIPE_ENV] || platform.pipePath()); }
 
 const NOT_RUNNING =
   'The ChatGPT bridge is not running: Google Chrome is closed, or the browser extension ' +
@@ -109,7 +109,7 @@ async function copyResults(job) {
 }
 
 module.exports = {
-  VERSION, ROOT, DATA_DIR, LOG_DIR, CONFIG_FILE, JOBS_FILE, PREVIEW_DIR, HOST_NAME,
+  VERSION, ROOT, DATA_DIR, LOG_DIR, CONFIG_FILE, JOBS_FILE, PREVIEW_DIR,
   NOT_RUNNING, BridgeError, readJson, writeJson, call, readReferences, copyResults,
   get PIPE_PATH() { return getPipePath(); },
 };

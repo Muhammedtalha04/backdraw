@@ -8,6 +8,7 @@ const fs = require('fs');
 const net = require('net');
 const os = require('os');
 const path = require('path');
+const identity = require('./identity');
 const shared = require('./shared');
 
 const VERSION = shared.VERSION;
@@ -48,7 +49,7 @@ function loadConfig() {
   const c = shared.readJson(shared.CONFIG_FILE, {});
   return {
     project: c.project || null,
-    outputDir: c.outputDir || path.join(os.homedir(), 'Pictures', 'ChatGPT Görselleri'),
+    outputDir: c.outputDir || path.join(os.homedir(), 'Pictures', identity.IMAGES_DIR_NAME),
     debug: !!c.debug,
   };
 }

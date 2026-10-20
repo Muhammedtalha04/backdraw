@@ -4,9 +4,10 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const identity = require('./identity');
 const bridge = require('./shared');
 
-const SERVER_INFO = { name: 'chatgpt-images', title: 'ChatGPT Images (via Chrome)', version: bridge.VERSION };
+const SERVER_INFO = { name: identity.MCP_NAME, title: identity.PRODUCT, version: bridge.VERSION };
 const FINAL = new Set(['succeeded', 'failed', 'cancelled', 'needs_reference', 'text_reply']);
 // A prompt that asks to change an existing image rather than draw a new one.
 const EDIT_INTENT = /\b(edit|modify|retouch|inpaint|change only|only change|keep (everything|it|the rest)|pixel-identical|same (pose|image|drawing|character))\b|düzenle|değiştir|aynı (kalsın|bırak|tut)|koru(yarak)?\b/i;
@@ -140,7 +141,7 @@ const TOOLS = [
 // ---------------------------------------------------------------- JSON-RPC over stdio
 
 function send(msg) { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n'); }
-function logErr(...args) { process.stderr.write(`[chatgpt-images] ${args.join(' ')}\n`); }
+function logErr(...args) { process.stderr.write(`[${identity.MCP_NAME}] ${args.join(' ')}\n`); }
 
 async function handle(msg) {
   if (!msg || typeof msg.method !== 'string') return; // responses to requests we never send

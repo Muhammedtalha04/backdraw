@@ -18,11 +18,16 @@ function loadFor(platformName) {
   }
 }
 
-test('Windows pipe path and install folder keep their names', () => {
+test('Windows pipe path is backdraw-<user>', () => {
   const win = loadFor('win32');
   const user = (os.userInfo().username || 'user').replace(/[^A-Za-z0-9_.-]/g, '_');
-  assert.equal(win.pipePath(), String.raw`\\.\pipe\chatgpt-image-bridge-` + user);
-  assert.equal(win.installDir(), path.join(os.homedir(), '.claude', 'chatgpt-image-bridge'));
+  assert.equal(win.pipePath(), String.raw`\\.\pipe\backdraw-` + user);
+});
+
+test('install folder is ~/.backdraw; the old one is still known for migration', () => {
+  const win = loadFor('win32');
+  assert.equal(win.installDir(), path.join(os.homedir(), '.backdraw'));
+  assert.equal(win.legacyInstallDir(), path.join(os.homedir(), '.claude', 'chatgpt-image-bridge'));
 });
 
 test('other platforms get a clear "not supported yet" error', () => {

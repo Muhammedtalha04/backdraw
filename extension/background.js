@@ -2,7 +2,7 @@
 // tab it opens in the background: the tab is never activated and no window is ever focused.
 // Only prompts, reference images, progress, chat links and image bytes cross the bridge; cookies,
 // tokens and passwords are never read.
-const HOST = 'com.claude.chatgpt_image_bridge';
+const HOST = 'io.github.muhammedtalha04.backdraw'; // identity.js HOST_NAME
 const VERSION = chrome.runtime.getManifest().version;
 const HOME = 'https://chatgpt.com/';
 const HUMAN_WAIT_MS = 10 * 60 * 1000;
