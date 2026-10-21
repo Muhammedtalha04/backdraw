@@ -74,14 +74,14 @@ test('similarity: 1 for equal, 0 for empty, edit distance in between', () => {
 });
 
 test('rankProjects: an exact (normalized) name wins over a substring match', () => {
-  const r = rankProjects([{ name: 'Claude' }, { name: 'Claude Görseler', url: 'u' }, { name: 'Work' }], 'claude gorseler');
-  assert.deepEqual(r.best, { name: 'Claude Görseler', url: 'u', score: 2 });
+  const r = rankProjects([{ name: 'Claude' }, { name: 'Claude Çizimler', url: 'u' }, { name: 'Work' }], 'claude cizimler');
+  assert.deepEqual(r.best, { name: 'Claude Çizimler', url: 'u', score: 2 });
   assert.equal(r.ties.length, 1);
-  assert.deepEqual(r.scored.map(x => [x.name, x.score > 1 ? x.score : 'fuzzy']), [['Claude Görseler', 2], ['Claude', 1.5], ['Work', 'fuzzy']]);
+  assert.deepEqual(r.scored.map(x => [x.name, x.score > 1 ? x.score : 'fuzzy']), [['Claude Çizimler', 2], ['Claude', 1.5], ['Work', 'fuzzy']]);
 });
 
 test('rankProjects: substring either way scores 1.5', () => {
-  assert.equal(rankProjects([{ name: 'Claude Görseler' }], 'görsel').best.score, 1.5);
+  assert.equal(rankProjects([{ name: 'Claude Çizimler' }], 'çizim').best.score, 1.5);
   assert.equal(rankProjects([{ name: 'Art' }], 'concept art').best.score, 1.5);
 });
 
