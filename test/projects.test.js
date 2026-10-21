@@ -51,10 +51,10 @@ test('parseProjectUrl: anything that is not a chatgpt.com project is null', () =
 });
 
 test('normName: case, spaces, accents and Turkish letters fold to the same key', () => {
-  assert.equal(normName('ClaudeGörseler'), 'claudegorseler');
-  assert.equal(normName('claude görseler'), 'claudegorseler');
-  assert.equal(normName('CLAUDEGORSELER'), 'claudegorseler');
-  assert.equal(normName('CLAUDE GÖRSELLER'), 'claudegorseller');
+  assert.equal(normName('ÇizimGörselleri'), 'cizimgorselleri');
+  assert.equal(normName('çizim görselleri'), 'cizimgorselleri');
+  assert.equal(normName('CIZIMGORSELLERI'), 'cizimgorselleri');
+  assert.equal(normName('ÇİZİM GÖRSELİ'), 'cizimgorseli');
   // Turkish lower-casing turns I into dotless ı; it still folds to i.
   assert.equal(normName('IMAGES'), 'images');
   assert.equal(normName('İstanbul'), 'istanbul');
