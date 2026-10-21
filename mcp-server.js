@@ -8,6 +8,8 @@ const identity = require('./identity');
 const bridge = require('./shared');
 const protocol = require('./lib/protocol');
 const { FINAL, DEFAULT_WAIT, waitSeconds, resultLines } = require('./lib/results');
+const { MAX_REFS } = require('./lib/limits');
+const { describeCollections } = require('./lib/collections');
 
 const SERVER_INFO = { name: identity.MCP_NAME, title: identity.PRODUCT, version: bridge.VERSION };
 
@@ -16,6 +18,7 @@ const INSTRUCTIONS = `Generates images with the user's own ChatGPT account (alre
 - generate_image and fetch_images return within about ${DEFAULT_WAIT} seconds. Generating usually takes 1-3 minutes, so the first result is often STILL RUNNING or QUEUED with a job id: keep calling job_status(job_id, wait_seconds=${DEFAULT_WAIT}) until it reports a final status. Do not call generate_image again for the same request while its job is still running.
 - To EDIT an image or keep a character consistent, pass the image file(s) in reference_images (e.g. a file saved by an earlier call). A fresh chat with reference_images is the most reliable way to edit; long revision chains via conversation_url make ChatGPT lose track of earlier images.
 - For a specific shape (banner, avatar, phone wallpaper) pass aspect_ratio instead of describing the size in the prompt; for stickers/logos/icons that need a see-through background pass transparent_background=true and read the transparency line in the result.
+- When the user mentions one of their Backdraw collections (reference images they saved from the web in Chrome), call list_collections if needed and pass reference_collection to generate_image.
 - Read every result line: NEEDS REFERENCE IMAGE means ChatGPT could not reach the image to edit; CHATGPT REPLIED WITHOUT AN IMAGE shows ChatGPT's own text. Never resend the identical prompt in a loop; follow the next step given in the result.
 - An EDIT CHECK warning means ChatGPT drew a new picture instead of editing; tell the user and retry with reference_images in a fresh chat if an exact edit is needed.
 - The work happens in a background Chrome tab; never tell the user to switch tabs unless a result says NEEDS USER ACTION.
@@ -43,7 +46,8 @@ const TOOLS = [
       'or, while ChatGPT is still working, STILL RUNNING / QUEUED with a job id: then keep calling job_status with that job_id. ' +
       "Use it whenever the user asks for an image, visual, illustration or concept art with ChatGPT, in any language. " +
       'Write a detailed, self-contained prompt (subject, style, composition, colors, mood); give the shape in aspect_ratio rather than in the prompt. ' +
-      'To edit an image or keep a character consistent, pass the image file(s) in reference_images: a fresh chat with reference_images is the most reliable way to edit.',
+      'To edit an image or keep a character consistent, pass the image file(s) in reference_images: a fresh chat with reference_images is the most reliable way to edit. ' +
+      "To use one of the user's saved reference collections (see list_collections), pass reference_collection.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -59,8 +63,8 @@ const TOOLS = [
           description: 'Ask for a PNG with a transparent background (stickers, logos, icons, sprites). The result says whether the saved image really has transparent pixels.',
         },
         reference_images: {
-          type: 'array', items: { type: 'string' }, maxItems: 4,
-          description: 'Optional local image files (png/jpg/webp/gif, up to 4) attached to the message, e.g. the image to edit or a character sheet. Paths saved by earlier calls work directly.',
+          type: 'array', items: { type: 'string' }, maxItems: MAX_REFS,
+          description: `Optional local image files (png/jpg/webp/gif, up to ${MAX_REFS}) attached to the message, e.g. the image to edit or a character sheet. Paths saved by earlier calls work directly.`,
         },
         conversation_url: {
           type: 'string',
@@ -77,6 +81,15 @@ const TOOLS = [
         wait_seconds: WAIT_SECONDS,
         include_preview: { type: 'boolean', default: true, description: 'Attach a downscaled preview of the result so you can check it.' },
         send_as_is: { type: 'boolean', default: false, description: 'Send the prompt verbatim, without the short instruction the bridge adds (useful to answer a question ChatGPT asked).' },
+        reference_collection: {
+          type: 'string',
+          description: "Optional name of one of the user's Backdraw reference collections (see list_collections; matched loosely). " +
+            `Its images are attached after any reference_images, up to ${MAX_REFS} references in total: over the limit the newest are used, unless reference_files picks others.`,
+        },
+        reference_files: {
+          type: 'array', items: { type: 'string' }, maxItems: MAX_REFS,
+          description: 'Optional file names from list_collections to attach only those images of reference_collection, instead of the newest.',
+        },
       },
       required: ['prompt'],
       additionalProperties: false,
@@ -157,6 +170,15 @@ const TOOLS = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  {
+    name: 'list_collections',
+    title: 'List Backdraw reference collections',
+    description:
+      'List the reference collections the user saved in Chrome (right-click an image, "Add to Backdraw"): each with its image count, folder and files (newest first, with the site they came from). ' +
+      `Pass a collection's name as generate_image's reference_collection to attach its images (up to ${MAX_REFS} references; reference_files picks specific ones).`,
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false },
   },
 ];
 
@@ -263,6 +285,7 @@ async function callTool(name, args, call) {
       case 'fetch_images': return await fetchImages(args, call);
       case 'list_projects': return await listProjects();
       case 'select_project': return await selectProject(args);
+      case 'list_collections': return await listCollections();
       default: return textResult(`Unknown tool: ${name}`, true);
     }
   } catch (e) {
@@ -280,6 +303,9 @@ async function generateImage(args, call) {
     aspect: args.aspect_ratio, transparent: !!args.transparent_background,
     copyTo: args.output_dir ? path.resolve(String(args.output_dir)) : undefined,
     startUrl: args.conversation_url ? String(args.conversation_url) : undefined,
+    referenceCollection: args.reference_collection ? String(args.reference_collection) : undefined,
+    // A single file name as a string works too, like reference_images.
+    referenceFiles: args.reference_files ? [].concat(args.reference_files).map(String) : undefined,
   }, 60000);
   const done = await waitForJob(job.id, secondsLeft(deadline), call);
   return jobResult(await finish(done), args.include_preview !== false);
@@ -401,6 +427,10 @@ async function selectProject(args) {
   if (!args.name && !args.url) return textResult('Give name or url.', true);
   const r = await bridge.call('select_project', { name: args.name, url: args.url }, 130000);
   return textResult(`Selected ChatGPT project "${r.project.name}" (${r.project.url}). New images will be created there and the choice is remembered.`);
+}
+
+async function listCollections() {
+  return textResult(describeCollections(await bridge.call('list_collections'), MAX_REFS));
 }
 
 process.on('uncaughtException', e => logErr('uncaught:', e.stack || e));

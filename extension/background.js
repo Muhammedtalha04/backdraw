@@ -2,7 +2,7 @@
 // tab it opens in the background: the tab is never activated and no window is ever focused.
 // Only prompts, reference images, progress, chat links and image bytes cross the bridge; cookies,
 // tokens and passwords are never read.
-importScripts('aspect.js');
+importScripts('aspect.js', 'i18n.js', 'menus.js', 'collections.js'); // crop maths; right-click reference collections
 
 const { cropRect } = self.BackdrawAspect;
 const HOST = 'io.github.muhammedtalha04.backdraw'; // identity.js HOST_NAME
@@ -77,6 +77,7 @@ function onDisconnected(p, error) {
   refParts.clear();
   if (current) current.cancelled = true; // the host that owned the job is gone
   setBadge();
+  collectionsOffline();
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(connect, reconnectDelay);
   reconnectDelay = Math.min(reconnectDelay * 2, 60000);
@@ -90,6 +91,7 @@ async function onHostMessage(msg) {
       reconnectDelay = 2000;
       project = msg.project || null;
       setBadge();
+      collectionsOnline(msg.collections);
       break;
     case 'config':
       project = msg.project || null;
@@ -119,6 +121,12 @@ async function onHostMessage(msg) {
       break;
     case 'request':
       handleRequest(msg);
+      break;
+    case 'reply':
+      settleHostCall(msg);
+      break;
+    case 'collections':
+      collectionsChanged(msg.collections);
       break;
     case 'reload':
       setTimeout(() => chrome.runtime.reload(), 300);
@@ -870,7 +878,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       current: current ? { id: current.job.id, step: current.step, message: current.message } : null,
     });
   } else if (msg.type === 'popup:select') {
-    if (!hostReady) { reply({ ok: false, error: 'Köprü bağlı değil.' }); return; }
+    if (!hostReady) { reply({ ok: false, error: i18n.t('errNotConnected') }); return; }
     post({ type: 'set_project', project: msg.project });
     project = msg.project;
     reply({ ok: true });

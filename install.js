@@ -42,6 +42,15 @@ function migrateData(fromDir, toDir) {
   return report;
 }
 
+// Folders a config without them gets; the user's own settings are kept. pictures() is only asked
+// when needed (it starts PowerShell).
+function configDefaults(cfg, pictures) {
+  const out = { ...cfg };
+  if (!out.outputDir) out.outputDir = path.join(pictures(), identity.IMAGES_DIR_NAME);
+  if (!out.collectionsDir) out.collectionsDir = path.join(pictures(), identity.IMAGES_DIR_NAME, identity.COLLECTIONS_DIR_NAME);
+  return out;
+}
+
 // ---------------------------------------------------------------- Claude Code
 
 function removeLegacyMcpFromFile(file) {
@@ -217,8 +226,8 @@ async function install() {
   const hostEntry = platform.registerNativeHost(identity.HOST_NAME, hostManifest);
 
   const cfgFile = path.join(dest, 'data', 'config.json');
-  const cfg = readJson(cfgFile, {});
-  if (!cfg.outputDir) cfg.outputDir = path.join(platform.picturesDir(), identity.IMAGES_DIR_NAME);
+  let pictures = null;
+  const cfg = configDefaults(readJson(cfgFile, {}), () => pictures || (pictures = platform.picturesDir()));
   fs.mkdirSync(path.dirname(cfgFile), { recursive: true });
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
   fs.mkdirSync(cfg.outputDir, { recursive: true });
@@ -232,6 +241,7 @@ async function install() {
   Chrome host entry : ${hostEntry}
   Claude Code MCP   : ${mcp}
   Images folder     : ${cfg.outputDir}
+  Collections folder: ${cfg.collectionsDir}
   Extension ID      : ${id}`];
   if (hasLegacy) {
     lines.push(`\nMigrated from the old install in ${legacyDir}:`,
@@ -281,4 +291,4 @@ if (require.main === module) {
   Promise.resolve().then(run).catch(e => { console.error(`Setup failed: ${e.message}`); process.exitCode = 1; });
 }
 
-module.exports = { FILES, migrateData, updateDesktopConfig, desktopEntry, extensionSteps };
+module.exports = { FILES, migrateData, updateDesktopConfig, desktopEntry, extensionSteps, configDefaults };

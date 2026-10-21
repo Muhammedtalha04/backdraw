@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { FINAL, DEFAULT_WAIT, EDIT_INTENT, waitSeconds, editCheckLines, imageLines, resultLines } = require('../lib/results');
+const { FINAL, DEFAULT_WAIT, EDIT_INTENT, waitSeconds, editCheckLines, imageLines, referenceLines, resultLines } = require('../lib/results');
 
 const CHAT_URL = 'https://chatgpt.com/g/g-p-67a1b2c3d4e5f60718293a4b5c6d7e8f-images/c/6812a3b4-1c2d-8000-9e8f-0123456789ab';
 const job = fields => ({ id: 'img_1a2b3c4d', prompt: 'a void mage', images: [], copies: [], references: [], ...fields });
@@ -56,6 +56,18 @@ test('editCheckLines: under 75% without an edit request is a neutral note', () =
   const [line] = editCheckLines(job({ prompt: 'a castle at night', editCheck: check(0.3) }));
   assert.equal(line, 'Similarity to ref1.png: 30% (a local edit keeps ~95-100%, a redraw is usually under 60%).');
   assert.equal(editCheckLines(job({ prompt: undefined, editCheck: check(0.3) }))[0], line);
+});
+
+test('editCheckLines: only collection images attached is never a failed edit', () => {
+  const col = { name: 'Cats', used: ['002_b.png', '001_a.png'], total: 2 };
+  const refs = names => names.map(name => ({ name, bytes: 1 }));
+  const neutral = 'Similarity to ref1.png: 30% (a local edit keeps ~95-100%, a redraw is usually under 60%).';
+  const onlyCol = { prompt: 'the same character from my collection riding a bike', references: refs(['002_b.png', '001_a.png']), collection: col };
+  assert.deepEqual(editCheckLines(job({ ...onlyCol, editCheck: check(0.3) })), [neutral]);
+  assert.match(editCheckLines(job({ ...onlyCol, editCheck: check(0.9) }))[0], /^Similarity to ref1\.png: 90% /);
+  // An own image to edit next to the collection images: the warning still applies.
+  const withOwn = { ...onlyCol, references: refs(['mine.png', '002_b.png', '001_a.png']), editCheck: check(0.3) };
+  assert.match(editCheckLines(job(withOwn))[0], /EDIT CHECK \(edited: false\)/);
 });
 
 test('editCheckLines: the least similar output decides', () => {
@@ -313,10 +325,31 @@ test('imageLines: one image on its own', () => {
 });
 
 test('fetched (collect) images are cropped without blaming ChatGPT for the shape', () => {
-  const im = { path: 'C:\out\a.png', width: 941, height: 941, aspect: '1:1', full: { path: 'C:\out\a_full.png', width: 1672, height: 941 } };
+  const im = { path: 'C:\\out\\a.png', width: 941, height: 941, aspect: '1:1', full: { path: 'C:\\out\\a_full.png', width: 1672, height: 941 } };
   const fetched = resultLines({ id: 'img_c', mode: 'collect', status: 'succeeded', images: [im] }).join('\n');
   assert.match(fetched, /cropped from the centre to 1:1/);
   assert.doesNotMatch(fetched, /ChatGPT drew/);
   const generated = resultLines({ id: 'img_g', mode: 'generate', status: 'succeeded', images: [im] }).join('\n');
   assert.match(generated, /⚠ ChatGPT drew 1672x941 instead of 1:1/);
+});
+
+test("referenceLines: the caller's own images and the collection images are reported apart", () => {
+  const refs = names => names.map(name => ({ name, bytes: 1 }));
+  assert.deepEqual(referenceLines(job({})), []);
+  assert.deepEqual(referenceLines(job({ references: refs(['a.png', 'b.png']) })), ['Reference images attached: a.png, b.png']);
+  const col = { name: 'Cats', used: ['003_c.png', '002_b.png'], total: 9 };
+  assert.deepEqual(referenceLines(job({ references: refs(['own.png', '003_c.png', '002_b.png']), collection: col })), [
+    'Reference images attached: own.png',
+    'References: collection "Cats": used 2 of 9 (003_c.png, 002_b.png)',
+  ]);
+  // Only collection images: no "attached" line, and the same name as an own image is no problem.
+  assert.deepEqual(referenceLines(job({ references: refs(['003_c.png', '002_b.png']), collection: col })), [
+    'References: collection "Cats": used 2 of 9 (003_c.png, 002_b.png)',
+  ]);
+  assert.match(text(job({ status: 'succeeded', images: [{ path: 'a.png' }], references: refs(['003_c.png', '002_b.png']), collection: col })),
+    /^References: collection "Cats": used 2 of 9 \(003_c\.png, 002_b\.png\)$/m);
+  // Images left out are named with the reason.
+  assert.deepEqual(referenceLines(job({ references: refs(['003_c.png']), collection: { ...col, used: ['003_c.png'], skipped: ['004_d.png (larger than 20 MB)'] } })), [
+    'References: collection "Cats": used 1 of 9 (003_c.png); left out: 004_d.png (larger than 20 MB)',
+  ]);
 });

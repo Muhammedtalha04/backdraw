@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Backdraw</title>
@@ -25,18 +25,56 @@
       background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 600; cursor: pointer; }
     button[hidden] { display: none; }
     footer { padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    #collections { padding: 10px 14px 12px; border-top: 1px solid var(--line); }
+    #collections h2 { margin: 0 0 6px; font-size: 13px; }
+    #collections button { margin: 0; width: auto; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px;
+      background: transparent; color: var(--fg); font-weight: 400; }
+    #collections button.danger { border-color: var(--bad); color: var(--bad); }
+    #colList { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+    #colList button { display: flex; justify-content: space-between; gap: 8px; width: 100%; text-align: left; }
+    #colList .count, #colPath { color: var(--muted); }
+    #colHead { display: flex; align-items: center; gap: 8px; }
+    #colName { flex: 1; font-weight: 600; overflow-wrap: anywhere; }
+    #colPath { margin: 2px 0 6px; font-size: 11px; overflow-wrap: anywhere; }
+    .actions, #colEdit { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+    #colEdit p { margin: 0; width: 100%; }
+    #colEdit input { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
+    #colGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; max-height: 300px; overflow-y: auto; }
+    .tile { position: relative; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+    .tile img { width: 100%; height: 100%; object-fit: cover; }
+    .tile .noimg { padding: 4px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+    #collections .tile button { position: absolute; top: 3px; right: 3px; padding: 0 6px; border: 0; border-radius: 10px;
+      background: rgba(0, 0, 0, .55); color: #fff; line-height: 18px; }
+    #collections .tile button.armed { background: var(--bad); }
+    #colMsg { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+    #colMsg:empty { display: none; }
+    #colMsg.bad { color: var(--bad); font-weight: 600; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <header><img src="icons/icon32.png" alt="">Backdraw</header>
   <dl>
-    <dt>Köprü</dt><dd id="conn">…</dd>
-    <dt>Proje</dt><dd id="project">…</dd>
-    <dt>İş</dt><dd id="job">…</dd>
+    <dt data-i18n="bridge">Bridge</dt><dd id="conn">…</dd>
+    <dt data-i18n="project">Project</dt><dd id="project">…</dd>
+    <dt data-i18n="job">Job</dt><dd id="job">…</dd>
   </dl>
   <div id="hint"></div>
   <button id="pick" hidden></button>
-  <footer>Sürüm <span id="ver">?</span> · Görseller arka planda üretilir; aktif sekmen değişmez.</footer>
+  <section id="collections">
+    <h2 data-i18n="collections">Collections</h2>
+    <div id="colList"></div>
+    <div id="colDetail" hidden>
+      <div id="colHead"><button id="colBack" data-i18n="back">‹ Back</button><span id="colName"></span></div>
+      <div id="colPath"></div>
+      <div class="actions"><button id="colRename" data-i18n="rename">Rename</button><button id="colDelete" class="danger" data-i18n="deleteCollection">Delete collection</button></div>
+      <div id="colEdit" hidden></div>
+      <div id="colGrid"></div>
+    </div>
+    <p id="colMsg"></p>
+  </section>
+  <footer><span data-i18n="version">Version</span> <span id="ver">?</span> · <span data-i18n="footerNote">Images are made in a background tab; your active tab does not change.</span></footer>
+  <script src="i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

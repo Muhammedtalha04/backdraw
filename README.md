@@ -36,11 +36,12 @@ Araçlar (`chatgpt-images` MCP sunucusu):
 
 | Araç | Ne yapar |
 |---|---|
-| `generate_image` | Seçili projede yeni sohbet açıp görsel üretir. Sonucu bekler; dosya yolunu, önizlemeyi ve sohbet bağlantısını döndürür. `reference_images` yerel görselleri (en fazla 4) mesaja ekler; düzenleme ve karakter tutarlılığı için en güvenilir yol budur. `conversation_url` o sohbette devam eder. `auto_reattach` açıksa ChatGPT "görseli tekrar yükle" derse görseli kendisi ekleyip bir kez daha sorar. `output_dir` ile ek bir klasöre kopyalar. |
+| `generate_image` | Seçili projede yeni sohbet açıp görsel üretir. Sonucu bekler; dosya yolunu, önizlemeyi ve sohbet bağlantısını döndürür. `reference_images` yerel görselleri mesaja ekler (koleksiyon görselleriyle birlikte en fazla 16); düzenleme ve karakter tutarlılığı için en güvenilir yol budur. `conversation_url` o sohbette devam eder. `auto_reattach` açıksa ChatGPT "görseli tekrar yükle" derse görseli kendisi ekleyip bir kez daha sorar. `output_dir` ile ek bir klasöre kopyalar. |
 | `job_status` | Bir işin durumunu gösterir (istenirse bekler). `job_id` verilmezse köprünün genel durumunu gösterir. |
 | `cancel_job` | Kuyruktaki ya da çalışan işi iptal eder. Gerekirse ChatGPT'de Durdur'a basar. |
 | `fetch_images` | Var olan bir ChatGPT sohbetindeki son görselleri mesaj göndermeden indirir. Zaman aşımına uğramış işleri kurtarmak için kullanılır. |
 | `list_projects` / `select_project` | ChatGPT projelerini listeler; görsellerin üretileceği projeyi seçer ve hatırlar. |
+| `list_collections` | Chrome'da kaydettiğin referans koleksiyonlarını, görsel sayılarını ve dosyalarını listeler. `generate_image`'a `reference_collection` verilince o koleksiyonun en yeni görselleri eklenir; `reference_files` belirli dosyaları seçer. |
 
 Sonuç türleri (Claude bunları okuyup ona göre davranır):
 
@@ -54,6 +55,16 @@ Sonuç türleri (Claude bunları okuyup ona göre davranır):
 
 Tüm görseller her zaman `Resimler\ChatGPT Görselleri` klasörüne kaydedilir. `output_dir` verildiğinde ek bir kopya da oraya gider.
 Dosya adı tarih ve istemden oluşur.
+
+## Referans koleksiyonları
+
+Herhangi bir sitede bir görsele sağ tıkla → **Backdraw'a ekle** → bir koleksiyon ya da **Yeni koleksiyon…**.
+Görsel `Resimler\Backdraw\References\<koleksiyon>` klasörüne kaydedilir (dosya adını Backdraw verir; aynı görsel
+iki kez eklenmez). Sonra Claude'a örneğin `Kediler koleksiyonumu referans alarak bir afiş üret.` demen yeterli.
+Koleksiyonları eklenti simgesindeki **Koleksiyonlar** bölümünden görebilir, yeniden adlandırabilir ve silebilirsin.
+Bir istekte en fazla 16 referans görseli kullanılır; koleksiyon daha büyükse en yeni 16'sı seçilir (`reference_files` başkalarını seçer).
+Her referans en fazla 20 MB, hepsi birlikte en fazla 80 MB olabilir: koleksiyona 25 MB'a kadar görsel eklenebilir, ama 20 MB'tan
+büyük olanlar istekte atlanır ve sonuçta "left out" olarak yazılır. Klasörden elle silinen görseller listeden de düşer.
 
 ## Kurulum (bir kez)
 
@@ -75,6 +86,8 @@ node cli.js status                 # Chrome bağlı mı, hangi proje seçili, ku
 node cli.js generate "istem"       # Claude'suz deneme
 node cli.js generate "sadece gözleri kapat" --ref görsel.png   # referansla düzenleme
 node cli.js collect <sohbet linki> # mevcut sohbetten görsel indir
+node cli.js collections            # referans koleksiyonları
+node cli.js collection <ad>        # bir koleksiyonun görselleri
 node cli.js debug on               # ayrıntılı kayıt: logs\host.log
 node cli.js diagnose [link]        # ChatGPT sayfa yapısının özeti (arayüz değişirse)
 ```

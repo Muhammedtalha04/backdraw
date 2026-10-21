@@ -152,7 +152,7 @@ test('the service worker loads aspect.js before anything else and uses cropRect 
   const path = require('node:path');
   const background = fs.readFileSync(path.join(__dirname, '..', 'extension', 'background.js'), 'utf8');
   const code = background.split('\n').filter(l => l.trim() && !l.startsWith('//'));
-  assert.equal(code[0], "importScripts('aspect.js');");
+  assert.match(code[0], /^importScripts\('aspect\.js'[,)]/);
   assert.match(background, /const \{ cropRect \} = self\.BackdrawAspect;/);
 });
 

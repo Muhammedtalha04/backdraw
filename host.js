@@ -15,14 +15,16 @@ const { normName, parseProjectUrl, pickProject } = require('./lib/projects');
 const { buildText } = require('./lib/prompt');
 const { aspectOption } = require('./lib/aspect');
 const { pngInfo } = require('./lib/png');
+const { MAX_REFS, MAX_REF_BYTES, MAX_REFS_TOTAL_BYTES, MAX_COLLECTION_BYTES } = require('./lib/limits');
+const { withCollection } = require('./lib/collections');
+const store = require('./lib/collection-store');
+const { callAssembler, answerCall } = require('./lib/extension-calls');
 
 const VERSION = shared.VERSION;
 const LOG_FILE = path.join(shared.LOG_DIR, 'host.log');
 const MAX_JOBS = 100;
 // needs_reference: ChatGPT asked for the image to be uploaded again; text_reply: it answered in text.
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'needs_reference', 'text_reply']);
-const MAX_REFS = 4;
-const MAX_REF_BYTES = 20 * 1024 * 1024;
 const CHUNK = 600000; // base64 chars per message; Chrome caps host->extension messages at 1 MB
 
 let config = loadConfig();
@@ -55,6 +57,7 @@ function loadConfig() {
   return {
     project: c.project || null,
     outputDir: c.outputDir || path.join(os.homedir(), 'Pictures', identity.IMAGES_DIR_NAME),
+    collectionsDir: c.collectionsDir || path.join(os.homedir(), 'Pictures', identity.IMAGES_DIR_NAME, identity.COLLECTIONS_DIR_NAME),
     debug: !!c.debug,
   };
 }
@@ -102,7 +105,7 @@ function onExtensionMessage(msg) {
     case 'hello':
       extension = { version: msg.version || '?', connectedAt: now() };
       log('info', `extension connected (v${extension.version})`);
-      toExtension({ type: 'welcome', hostVersion: VERSION, project: config.project });
+      toExtension({ type: 'welcome', hostVersion: VERSION, project: config.project, collections: collectionSummaries() });
       pump();
       break;
     case 'progress': onProgress(msg); break;
@@ -120,6 +123,10 @@ function onExtensionMessage(msg) {
       try { setProject(msg.project); } catch (e) { log('warn', 'project from popup rejected', e.message); }
       break;
     case 'log': log(msg.level || 'ext', `[ext] ${msg.msg}`, msg.data); break;
+    case 'call_chunk': extensionCalls.chunk(msg); break;
+    case 'call':
+      answerCall(msg, handlers, extensionCalls.take(msg.reqId), MAX_COLLECTION_BYTES / 1024 / 1024).then(toExtension);
+      break;
     default: log('warn', 'unknown message from extension', msg.type);
   }
 }
@@ -136,6 +143,9 @@ function askExtension(action, params = {}, timeoutMs = 120000) {
     toExtension({ type: 'request', reqId, action, params });
   });
 }
+
+// Calls from the extension itself (collections); lib/extension-calls.js keeps them to its allow-list.
+const extensionCalls = callAssembler(Math.ceil(MAX_COLLECTION_BYTES / 3) * 4 + 4);
 
 // ---------------------------------------------------------------- jobs
 
@@ -170,7 +180,10 @@ function createJob(p) {
   if (refs.length > MAX_REFS) throw new shared.BridgeError(`At most ${MAX_REFS} reference images per request.`, 'BAD_REQUEST');
   for (const r of refs) {
     if (!r || !r.data || !/^image\//.test(r.mime || '')) throw new shared.BridgeError('Each reference must be an image file.', 'BAD_REQUEST');
-    if (r.data.length * 0.75 > MAX_REF_BYTES) throw new shared.BridgeError(`Reference "${r.name}" is larger than 20 MB.`, 'BAD_REQUEST');
+    if (r.data.length * 0.75 > MAX_REF_BYTES) throw new shared.BridgeError(`Reference "${r.name}" is larger than ${MAX_REF_BYTES / 1048576} MB.`, 'BAD_REQUEST');
+  }
+  if (refs.reduce((sum, r) => sum + r.data.length * 0.75, 0) > MAX_REFS_TOTAL_BYTES) {
+    throw new shared.BridgeError(`The reference images together are larger than ${MAX_REFS_TOTAL_BYTES / 1048576} MB.`, 'BAD_REQUEST');
   }
   if (mode === 'collect' && refs.length) throw new shared.BridgeError('Reference images cannot be used when only fetching images.', 'BAD_REQUEST');
   let aspect;
@@ -431,6 +444,38 @@ async function selectProject(p) {
   return { project: setProject(chosen), available: projects.map(x => x.name) };
 }
 
+// ---------------------------------------------------------------- reference collections
+
+function collectionSummaries() {
+  try {
+    return store.list(config.collectionsDir).map(x => ({ name: x.name, count: x.count }));
+  } catch (e) {
+    log('warn', 'could not read the collections folder', { dir: config.collectionsDir, error: e.message });
+    return [];
+  }
+}
+
+// The extension rebuilds its right-click menu from the list it gets after every change.
+function collectionsChanged(what, result) {
+  log('info', `collections: ${what}`, result);
+  if (extension) toExtension({ type: 'collections', collections: collectionSummaries() });
+  return result;
+}
+
+// reference_collection: the host reads the chosen images itself (it owns the folder) and attaches
+// them after the caller's own reference images (lib/collections.js decides which).
+function createWithCollection(p) {
+  const dir = config.collectionsDir;
+  const { params, collection } = withCollection(p, { find: name => store.find(dir, name), read: (col, im) => store.readImage(dir, col, im) });
+  const job = createJob(params);
+  if (collection) {
+    job.collection = collection;
+    saveJobs();
+    log('info', `job ${job.id} uses collection "${collection.name}"`, { used: collection.used, skipped: collection.skipped });
+  }
+  return job;
+}
+
 // ---------------------------------------------------------------- local API (named pipe)
 
 function publicJob(j) {
@@ -443,6 +488,7 @@ function publicJob(j) {
     references: j.references || [], reattached: !!j.reattached, editCheck: j.editCheck || null,
     aspect: j.aspect ? j.aspect.target.label : null, transparent: !!j.transparent,
     copyTo: j.copyTo || null, copies: j.copies || [],
+    collection: j.collection || null,
     chatImages: j.status === 'needs_reference' || j.status === 'text_reply' ? imagesFromChat(j) : undefined,
     queuePosition: j.status === 'queued' ? jobs.filter(x => x.status === 'queued').indexOf(j) + 1 : undefined,
   };
@@ -454,6 +500,7 @@ function statusInfo() {
     extension,
     project: config.project,
     outputDir: config.outputDir,
+    collectionsDir: config.collectionsDir,
     debug: config.debug,
     running: publicJob(jobs.find(j => j.id === runningId)),
     queued: jobs.filter(j => j.status === 'queued').map(j => j.id),
@@ -465,7 +512,7 @@ function statusInfo() {
 
 const handlers = {
   status: () => statusInfo(),
-  generate: p => publicJob(createJob(p)),
+  generate: p => publicJob(createWithCollection(p)),
   job: p => publicJob(findJob(p.jobId)),
   // The MCP server copies finished images into the caller's output_dir and records it here once.
   mark_copied: p => {
@@ -482,8 +529,13 @@ const handlers = {
       if (!path.isAbsolute(String(p.outputDir))) throw new shared.BridgeError('outputDir must be absolute.', 'BAD_REQUEST');
       config.outputDir = String(p.outputDir);
     }
+    if (p.collectionsDir !== undefined) {
+      if (!path.isAbsolute(String(p.collectionsDir))) throw new shared.BridgeError('collectionsDir must be absolute.', 'BAD_REQUEST');
+      config.collectionsDir = String(p.collectionsDir);
+    }
     if (p.debug !== undefined) config.debug = !!p.debug;
     saveConfig();
+    if (p.collectionsDir !== undefined) collectionsChanged('folder set', { dir: config.collectionsDir });
     return config;
   },
   diagnose: p => askExtension('diagnose', p, 180000),
@@ -492,6 +544,16 @@ const handlers = {
     toExtension({ type: 'reload' });
     return { ok: true };
   },
+  // summary: without the image lists (the popup only needs names and counts).
+  list_collections: p => {
+    const list = store.list(config.collectionsDir);
+    return p.summary ? list.map(({ images, ...rest }) => rest) : list;
+  },
+  collection_add: p => collectionsChanged('add', store.add(config.collectionsDir, p)),
+  rename_collection: p => collectionsChanged('rename', store.rename(config.collectionsDir, p.name, p.newName)),
+  delete_collection: p => collectionsChanged('delete', store.remove(config.collectionsDir, p.name)),
+  delete_collection_image: p => collectionsChanged('delete image', store.removeImage(config.collectionsDir, p.name, p.file)),
+  collection_thumbs: p => store.thumbs(config.collectionsDir, p.name, p.offset),
 };
 
 async function answer(sock, line) {

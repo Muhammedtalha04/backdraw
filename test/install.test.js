@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { FILES, migrateData, updateDesktopConfig, desktopEntry, extensionSteps } = require('../install');
+const { FILES, migrateData, updateDesktopConfig, desktopEntry, extensionSteps, configDefaults } = require('../install');
 
 function tempDir() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'backdraw-test-'));
@@ -145,4 +145,22 @@ test('the deploy list covers every local file the deployed code requires', () =>
     }
   }
   for (const f of ['lib/results.js', 'lib/protocol.js', 'platform/index.js', 'package.json']) assert.ok(required.includes(f), f);
+});
+
+test('config defaults: images and collections folders under Pictures; existing settings are kept', () => {
+  let asked = 0;
+  const pictures = () => { asked++; return path.join('C:', 'Pics'); };
+  assert.deepEqual(configDefaults({ project: { id: 'p' } }, pictures), {
+    project: { id: 'p' }, outputDir: path.join('C:', 'Pics', 'Backdraw'), collectionsDir: path.join('C:', 'Pics', 'Backdraw', 'References'),
+  });
+  asked = 0;
+  const mine = { outputDir: path.join('D:', 'Out'), collectionsDir: path.join('D:', 'Refs'), debug: true };
+  assert.deepEqual(configDefaults(mine, pictures), mine);
+  assert.equal(asked, 0); // the Pictures folder (PowerShell) is only looked up when needed
+  assert.deepEqual(configDefaults({ outputDir: mine.outputDir }, pictures), { outputDir: mine.outputDir, collectionsDir: path.join('C:', 'Pics', 'Backdraw', 'References') });
+});
+
+test('deployed lib files include the collection modules', () => {
+  for (const f of ['limits.js', 'collections.js', 'collection-store.js']) assert.ok(fs.existsSync(path.join(__dirname, '..', 'lib', f)), f);
+  assert.ok(FILES.includes('lib') && FILES.includes('extension'));
 });

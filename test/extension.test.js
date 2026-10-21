@@ -55,6 +55,9 @@ function loadWorker() {
     chrome: {
       runtime: { id: 'test', getManifest: () => ({ version: '0.0.0' }), connectNative: () => port, onStartup: event(), onInstalled: event(), onMessage: event() },
       alarms: { create() {}, onAlarm: event() },
+      contextMenus: { onClicked: event(), removeAll: async () => {}, create() {}, update: async () => {} },
+      windows: { onRemoved: event() },
+      tabs: { onRemoved: event() },
       action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {} },
       storage: { session: { get: async () => ({}), set: async () => {}, remove: async () => {} } },
     },

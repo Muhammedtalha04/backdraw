@@ -10,6 +10,7 @@ const { spawn } = require('node:child_process');
 const test = require('node:test');
 const identity = require('../identity');
 const { aspectOption } = require('../lib/aspect');
+const { MAX_REFS } = require('../lib/limits');
 
 const SERVER = path.join(__dirname, '..', 'mcp-server.js');
 const TAG = `backdraw-test-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
@@ -17,7 +18,7 @@ const PIPE = process.platform === 'win32' ? `\\\\.\\pipe\\${TAG}` : path.join(os
 const VERSION_KEY = 'io.modelcontextprotocol/protocolVersion';
 const SERVER_INFO_KEY = 'io.modelcontextprotocol/serverInfo';
 const MODERN = { [VERSION_KEY]: '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {} };
-const TOOL_NAMES = ['generate_image', 'job_status', 'cancel_job', 'fetch_images', 'list_projects', 'select_project'];
+const TOOL_NAMES = ['generate_image', 'job_status', 'cancel_job', 'fetch_images', 'list_projects', 'select_project', 'list_collections'];
 
 // ---------------------------------------------------------------- MCP server child process
 
@@ -174,6 +175,33 @@ test('legacy tools/list: fixed order, annotations, 45-second default waits, no m
   assert.deepEqual(tool('cancel_job').annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true });
   assert.deepEqual(tool('list_projects').annotations, { readOnlyHint: true, openWorldHint: true });
   assert.deepEqual(tool('select_project').annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+  assert.deepEqual(tool('list_collections').annotations, { readOnlyHint: true, openWorldHint: false });
+  assert.deepEqual(tool('list_collections').inputSchema, { type: 'object', properties: {}, additionalProperties: false });
+});
+
+test('generate_image schema: one reference limit, collection options after the older ones', async () => {
+  const { result } = await request('tools/list', {});
+  const { properties, required } = result.tools.find(t => t.name === 'generate_image').inputSchema;
+  assert.equal(MAX_REFS, 16);
+  assert.equal(properties.reference_images.maxItems, MAX_REFS);
+  assert.ok(properties.reference_images.description.includes(`up to ${MAX_REFS})`));
+  assert.deepEqual(Object.keys(properties).slice(-2), ['reference_collection', 'reference_files']);
+  assert.equal(properties.reference_collection.type, 'string');
+  assert.match(properties.reference_collection.description, /list_collections/);
+  assert.match(properties.reference_collection.description, /newest are used, unless reference_files picks others/);
+  assert.deepEqual({ ...properties.reference_files, description: undefined }, { type: 'array', items: { type: 'string' }, maxItems: MAX_REFS, description: undefined });
+  assert.deepEqual(required, ['prompt']);
+});
+
+test('instructions mention collections', async () => {
+  const res = await request('initialize', { protocolVersion: '2025-06-18' });
+  assert.match(res.result.instructions, /call list_collections if needed and pass reference_collection/);
+});
+
+test('generate_image refuses more reference images than the limit before calling the bridge', async () => {
+  const res = await callTool('generate_image', { prompt: 'x', reference_images: Array.from({ length: MAX_REFS + 1 }, (_, i) => `r${i}.png`), wait_seconds: 0 });
+  assert.equal(res.result.isError, true);
+  assert.match(textOf(res), new RegExp(`At most ${MAX_REFS} reference images`));
 });
 
 test('tools/list: aspect_ratio and transparent_background', async () => {
@@ -425,6 +453,45 @@ test('with a fake host', async t => {
     await settle();
     assert.equal(unsolicited.length, seen, JSON.stringify(unsolicited.slice(seen)));
     assert.ok(!unsolicited.some(m => m.id === id));
+  });
+
+  await t.test('list_collections: every collection with its folder and files, and how to use it', async () => {
+    handlers = { list_collections: () => [] };
+    assert.match(textOf(await callTool('list_collections', {})), /^No reference collections yet\./);
+    handlers = {
+      list_collections: () => [{
+        name: 'Cats', folder: 'Cats', path: 'D:/refs/Cats', count: 1, updatedAt: 'T',
+        images: [{ file: '001_cat.png', path: 'D:/refs/Cats/001_cat.png', sourceUrl: 'https://cdn.example.com/c.png', pageUrl: 'https://www.example.com/p', addedAt: '2026-10-01T00:00:00Z', width: 4, height: 3 }],
+      }],
+    };
+    const res = await callTool('list_collections', {});
+    const text = textOf(res);
+    assert.equal(res.result.isError, false);
+    assert.match(text, /^- "Cats": 1 image\(s\), folder D:\/refs\/Cats$/m);
+    assert.match(text, /^ {2}- 001_cat\.png \(example\.com, 4x3, added 2026-10-01\)$/m);
+    assert.match(text, /up to 16 references in total/);
+  });
+
+  await t.test('generate_image passes reference_collection and reference_files; the result says what was used', async () => {
+    let sent = null;
+    const job = fakeJob({
+      status: 'succeeded', step: 'succeeded', images: [], references: [{ name: 'own.png', bytes: 1 }, { name: '003_c.png', bytes: 1 }, { name: '001_a.png', bytes: 1 }],
+      collection: { name: 'Cats', used: ['003_c.png', '001_a.png'], total: 5 },
+    });
+    handlers = { generate: p => { sent = p; return job; }, job: () => job };
+    const res = await callTool('generate_image', { prompt: 'x', reference_collection: 'cats', reference_files: ['003_c.png', '001_a.png'], wait_seconds: 0 });
+    assert.equal(sent.referenceCollection, 'cats');
+    assert.deepEqual(sent.referenceFiles, ['003_c.png', '001_a.png']);
+    const text = textOf(res);
+    assert.match(text, /^Reference images attached: own\.png$/m);
+    assert.match(text, /^References: collection "Cats": used 2 of 5 \(003_c\.png, 001_a\.png\)$/m);
+    // A single file name as a string is not dropped (the newest would be attached instead).
+    await callTool('generate_image', { prompt: 'x', reference_collection: 'cats', reference_files: '001_a.png', wait_seconds: 0 });
+    assert.deepEqual(sent.referenceFiles, ['001_a.png']);
+    handlers = { generate: p => { sent = p; return job; }, job: () => job };
+    await callTool('generate_image', { prompt: 'x', wait_seconds: 0 });
+    assert.equal(sent.referenceCollection, undefined);
+    assert.equal(sent.referenceFiles, undefined);
   });
 
   await t.test('a job that starts to need the user returns at once', async () => {

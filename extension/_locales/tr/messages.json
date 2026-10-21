@@ -1,0 +1,5 @@
+{
+  "menuAdd": { "message": "Backdraw'a ekle", "description": "Right-click menu on an image: parent item of the collections." },
+  "menuNew": { "message": "Yeni koleksiyon…", "description": "Right-click submenu: opens a window to name a new collection." },
+  "menuOffline": { "message": "Backdraw bağlı değil", "description": "Disabled right-click submenu item while the local host is not running." }
+}

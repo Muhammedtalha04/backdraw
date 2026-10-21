@@ -16,6 +16,7 @@ test('identity constants', () => {
   assert.equal(identity.PIPE_ENV, 'BACKDRAW_PIPE');
   assert.equal(identity.INSTALL_DIR_NAME, '.backdraw');
   assert.equal(identity.IMAGES_DIR_NAME, 'Backdraw');
+  assert.equal(identity.COLLECTIONS_DIR_NAME, 'References');
   assert.equal(identity.LEGACY.HOST_NAME, 'com.claude.chatgpt_image_bridge');
   assert.equal(identity.LEGACY.MCP_NAME, 'chatgpt-images');
 });
