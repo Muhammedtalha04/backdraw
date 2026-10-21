@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <img src="branding/demo/backdraw-demo.gif" alt="Claude Code asks Backdraw for an image; ChatGPT draws it in a background tab and the file is saved on the PC" width="100%">
+  <img src="branding/demo/backdraw-demo.gif" alt="Right-click images on the web to save them as references, then Claude Code asks Backdraw for an image in that style; ChatGPT draws it in a background tab and the file is saved on the PC" width="100%">
 </p>
 
 <p align="center"><a href="README.tr.md">Türkçe</a></p>
