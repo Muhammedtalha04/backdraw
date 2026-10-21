@@ -32,6 +32,10 @@
     return { url: `https://chatgpt.com/g/${m[1]}${m[2] || ''}/project`, name: fromTitle || (m[2] || '').slice(1) || m[1] };
   }
 
+  // A project's link may carry its name (…/g/g-p-abc-images/project) or not (one picked from the list).
+  const projectId = url => ((/\/g\/(g-p-[0-9a-f]+)/i.exec(String(url || '')) || [])[1] || '').toLowerCase();
+  const sameProject = (a, b) => !!(a && b && projectId(a.url)) && projectId(a.url) === projectId(b.url);
+
   // The running job in the popup's language; ChatGPT's own progress (a percentage) is kept.
   function jobText(current, t) {
     if (!current) return t('idle');
@@ -47,7 +51,7 @@
     return c.challenge ? t('verification') : c.loggedIn === true ? t('signedIn') : c.loggedIn === false ? t('signedOut') : t('notChecked');
   }
 
-  const api = { STEP_TITLES, JOB_STEPS, setupSteps, projectFromTab, jobText, chatgptText };
+  const api = { STEP_TITLES, JOB_STEPS, setupSteps, projectFromTab, sameProject, jobText, chatgptText };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else globalThis.backdrawSetup = api;
 })();

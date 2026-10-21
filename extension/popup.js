@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const { t } = i18n;
-const { STEP_TITLES, setupSteps, projectFromTab, jobText, chatgptText } = backdrawSetup;
+const { STEP_TITLES, setupSteps, projectFromTab, sameProject, jobText, chatgptText } = backdrawSetup;
 const ACK_KEY = 'setupDone'; // chrome.storage.local: the user finished the checklist once
 const MARKS = { done: '✓', todo: '✗', wait: '…' };
 
@@ -9,6 +9,7 @@ let acknowledged = false;
 let tabProject = null; // a ChatGPT project open in the active tab
 let windowId = null;
 let shownSig = '';
+let shownJob = null;
 let collectionsLoaded = false;
 // What was started from this popup: the project list, a project being resolved, a failed check.
 const ui = { projects: null, projectsError: '', resolving: '', checkError: '' };
@@ -161,7 +162,7 @@ function renderStatus(s) {
   $('project').textContent = s.project ? s.project.name : t('notSelected');
   $('project').title = s.project ? s.project.url : '';
   const pick = $('pick');
-  pick.hidden = !(s.connected && tabProject && (!s.project || s.project.url !== tabProject.url));
+  pick.hidden = !(s.connected && tabProject && !sameProject(s.project, tabProject));
   pick.textContent = tabProject ? t('useProject', { name: tabProject.name }) : '';
   pick.onclick = () => useProject(tabProject);
 }
@@ -183,8 +184,12 @@ function render() {
     $(setup.wizard ? 'doneSteps' : 'steps').replaceChildren();
     renderStatus(s);
   }
-  const job = $('job');
-  job.replaceChildren(...(s.current ? [el('span', { className: 'spinner' }), jobText(s.current, t)] : [t('idle')]));
+  // Rebuilt only when its text changes, so the spinner keeps turning between polls.
+  const jobLine = s.current ? jobText(s.current, t) : t('idle');
+  if (jobLine !== shownJob) {
+    shownJob = jobLine;
+    $('job').replaceChildren(...(s.current ? [el('span', { className: 'spinner' })] : []), jobLine);
+  }
   $('collections').hidden = !s.connected;
   if (s.connected && !collectionsLoaded) {
     collectionsLoaded = true;

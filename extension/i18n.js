@@ -242,7 +242,9 @@
     return /^tr\b/i.test(String(uiLanguage || '')) ? 'tr' : 'en';
   }
 
+  // Chrome's own UI language, as _locales uses; navigator.language follows the websites' language list.
   function uiLanguage() {
+    try { return chrome.i18n.getUILanguage(); } catch {}
     try { return navigator.language; } catch { return ''; }
   }
 

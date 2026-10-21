@@ -402,6 +402,7 @@ const pageRequests = new Map([
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   const handler = msg && pageRequests.get(msg.type);
   if (!handler || sender.id !== chrome.runtime.id || !String(sender.url || '').startsWith(chrome.runtime.getURL(''))) return;
-  handler(msg).then(r => reply({ ok: true, ...r }), e => reply({ ok: false, error: String((e && e.message) || e) }));
+  // An error from the host may name a file in the user's folder; the pages show it as "~".
+  handler(msg).then(r => reply({ ok: true, ...r }), e => reply({ ok: false, error: i18n.shortPath(String((e && e.message) || e), hostHome) }));
   return true;
 });

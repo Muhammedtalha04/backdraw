@@ -126,7 +126,7 @@ test('extension steps: a first install explains loading the extension once, then
   assert.equal(steps.length, 2);
   assert.match(steps[0], /^Load the Chrome extension once: open chrome:\/\/extensions, turn on "Developer mode"/);
   assert.ok(steps[0].includes(path.join(dest, 'extension')));
-  assert.match(steps[1], /Click the Backdraw icon in Chrome's toolbar and follow its setup checklist/);
+  assert.match(steps[1], /^Open the Extensions menu \(the puzzle icon\) in Chrome's toolbar, pin Backdraw, click it and follow its setup checklist/);
   assert.doesNotMatch(steps.join('\n'), /Görsel Köprüsü|Check the connection/);
 });
 
@@ -243,8 +243,8 @@ test('install: copies the files, writes the host manifest and the config, regist
   const text = t.text();
   assert.match(text, /^Backdraw \d+\.\d+\.\d+ is installed\./);
   for (const v of [t.dest, cfg.outputDir, cfg.collectionsDir, expectedId(), '"backdraw" (claude mcp, user scope)']) assert.ok(text.includes(v), v);
-  assert.match(text, /\nNext steps:\n {2}1\. Load the Chrome extension once: [^\n]*\n {5}click "Load unpacked"[^\n]*\n {2}2\. Click the Backdraw icon/);
-  assert.doesNotMatch(text, /Migrated|old folder|desktop/i);
+  assert.match(text, /\nNext steps:\n {2}1\. Load the Chrome extension once: [^\n]*\n {5}click "Load unpacked"[^\n]*\n {2}2\. Open the Extensions menu \(the puzzle icon\)/);
+  assert.doesNotMatch(text, /Migrated|old folder|desktop|was reloaded/i);
 });
 
 test('install: an update keeps the user\'s config; a reloaded extension leaves nothing to do', async () => {
@@ -308,6 +308,8 @@ test('install: a Claude desktop config without Backdraw is left alone and become
     assert.ok(text.includes(`node "${path.join(t.dest, 'install.js')}" --desktop`));
     assert.match(text, running ? /Next steps:\n {2}1\. Claude desktop app \(chat\): Claude is running, so its config was left alone\.\n {5}Quit Claude completely/
       : /Next steps:\n {2}1\. Claude desktop app \(chat\): add Backdraw to its config with /);
+    // The Chrome side needs nothing, and the report still says so.
+    assert.match(text, /\nThe running Chrome extension was reloaded with the new version\.\n\nNext steps:\n/);
   }
 });
 
@@ -366,6 +368,30 @@ test('uninstall --dry-run: lists every target and changes or calls nothing', asy
     `"backdraw", "chatgpt-images" from ${t.desktopFile}`, t.cfg.outputDir, t.cfg.collectionsDir, path.join(t.dest, 'data')]) {
     assert.ok(text.includes(v), v);
   }
+});
+
+test('uninstall and its dry run name the same folders, and only the ones that are there', async () => {
+  const empty = setup();
+  await uninstall({ ...empty.ctx, dryRun: true });
+  await uninstall(empty.ctx);
+  const [dry, real] = empty.out;
+  for (const text of [dry, real]) assert.ok(!text.includes(empty.dest), text);
+  assert.doesNotMatch(real, /Kept:|Optionally delete/);
+  assert.match(dry, /It keeps:\n {2}The Chrome extension \(remove it at chrome:\/\/extensions\)$/);
+
+  const t = uninstallSetup();
+  const legacy = path.join(t.home, '.claude', 'chatgpt-image-bridge');
+  fs.mkdirSync(legacy, { recursive: true });
+  fs.rmSync(t.cfg.outputDir, { recursive: true });
+  await uninstall({ ...t.ctx, dryRun: true });
+  await uninstall(t.ctx);
+  const [d, r] = t.out;
+  for (const text of [d, r]) {
+    assert.ok(text.includes(`Settings, history : ${path.join(t.dest, 'data')}`), text);
+    assert.doesNotMatch(text, /Images folder|References folder/);
+  }
+  assert.ok(d.includes(`  The folder ${t.dest} itself (delete it by hand)\n  The folder ${legacy} itself (delete it by hand)`), d);
+  assert.ok(r.includes(`Optionally delete ${t.dest} and ${legacy} by hand`), r);
 });
 
 test('uninstall --dry-run without the claude CLI names the entries ~/.claude.json has', async () => {

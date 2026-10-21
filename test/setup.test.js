@@ -56,6 +56,16 @@ test('project from the active tab: a project page or a chat inside it, nothing e
   assert.equal(setup.projectFromTab(undefined), null);
 });
 
+test('same project: the id decides, with or without the name in the link', () => {
+  const tab = setup.projectFromTab({ url: 'https://chatgpt.com/g/g-p-0123abcd-backdraw/project', title: 'Backdraw - ChatGPT' });
+  assert.equal(setup.sameProject(PROJECT, tab), true); // picked from the list: no name in the link
+  assert.equal(setup.sameProject({ url: 'https://chatgpt.com/g/g-p-0123ABCD/project' }, tab), true);
+  assert.equal(setup.sameProject({ url: 'https://chatgpt.com/g/g-p-0123abce/project' }, tab), false);
+  assert.equal(setup.sameProject(null, tab), false);
+  assert.equal(setup.sameProject({ url: 'https://chatgpt.com/' }, { url: 'https://chatgpt.com/' }), false);
+  assert.match(read('popup.js'), /pick\.hidden = !\(s\.connected && tabProject && !sameProject\(s\.project, tabProject\)\)/);
+});
+
 test('job text: every step the worker reports has a text; ChatGPT\'s percentage is kept', () => {
   const steps = new Set([...read('background.js').matchAll(/progress\('([a-z_]+)'/g)].map(m => m[1]));
   assert.ok(steps.size >= 10, [...steps].join());
@@ -88,6 +98,19 @@ test('language: the popup\'s choice wins; "auto" follows the browser (Turkish or
   assert.equal(i18n.resolve('en', 'tr-TR'), 'en');
   assert.equal(i18n.resolve('fr', 'en-US'), 'en');
   assert.deepEqual(i18n.PREFERENCES, ['auto', 'en', 'tr']);
+});
+
+test('language: "auto" follows Chrome\'s UI language, not the websites\' language list', () => {
+  globalThis.chrome = { i18n: { getUILanguage: () => 'tr' } };
+  try {
+    assert.equal(i18n.setPreference('auto'), 'tr');
+    globalThis.chrome = { i18n: { getUILanguage: () => 'en-US' } };
+    assert.equal(i18n.lang(), 'en');
+  } finally {
+    delete globalThis.chrome;
+  }
+  assert.equal(i18n.lang(), i18n.resolve('auto', globalThis.navigator && navigator.language)); // no chrome.i18n (tests)
+  i18n.setPreference('en');
 });
 
 test('language: load() reads chrome.storage.local, watch() follows changes; both survive a missing chrome', async () => {
@@ -195,7 +218,8 @@ function loadWorker(probes = [], stored = {}) {
   const event = list => ({ addListener: f => { if (list) list.push(f); } });
   const onMessage = [];
   const fromHost = [];
-  const port = { onMessage: event(fromHost), onDisconnect: event(), postMessage() {} };
+  const posted = [];
+  const port = { onMessage: event(fromHost), onDisconnect: event(), postMessage: m => { posted.push(m); } };
   const saved = [];
   const created = [];
   const removed = [];
@@ -238,7 +262,7 @@ function loadWorker(probes = [], stored = {}) {
     for (const f of onMessage) if (f(msg, { id: 'ext', url }, resolve) === true) open = true;
     if (!open) setImmediate(() => resolve(undefined));
   });
-  return { ctx, send, saved, created, removed, fromHost, state: () => JSON.parse(JSON.stringify(vm.runInContext('chatgptState', ctx))) };
+  return { ctx, send, saved, created, removed, fromHost, posted, state: () => JSON.parse(JSON.stringify(vm.runInContext('chatgptState', ctx))) };
 }
 
 const LOADING = { url: 'https://chatgpt.com/', composer: false, login: false, challenge: null };
@@ -271,6 +295,17 @@ test('popup:status carries the sign-in state and the home folder from the host',
   assert.equal(s.connected, true);
   assert.equal(s.home, 'C:\\Users\\Jane');
   assert.deepEqual(JSON.parse(JSON.stringify(s.chatgpt)), { loggedIn: true, challenge: null, checkedAt: 5, checking: false });
+});
+
+test('an error from the host reaches the extension\'s pages with the home folder as "~"', async () => {
+  const w = loadWorker();
+  await new Promise(r => setTimeout(r, 0));
+  w.fromHost[0]({ type: 'welcome', project: PROJECT, collections: [], home: 'C:\\Users\\Jane' });
+  const answer = w.send({ type: 'host:call', method: 'rename_collection', params: { name: 'Cats', newName: 'Dogs' } });
+  await new Promise(r => setTimeout(r, 0));
+  const call = w.posted.find(m => m.type === 'call');
+  w.fromHost[0]({ type: 'reply', reqId: call.reqId, ok: false, error: "EPERM: operation not permitted, rename 'C:\\Users\\Jane\\Pictures\\Backdraw\\References\\Cats'" });
+  assert.deepEqual({ ...await answer }, { ok: false, error: "EPERM: operation not permitted, rename '~\\Pictures\\Backdraw\\References\\Cats'" });
 });
 
 test('popup:check-chatgpt: a background tab, looked at until the message box stays, then closed', async () => {

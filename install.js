@@ -221,7 +221,7 @@ If Backdraw was never loaded: turn on "Developer mode" there, click "Load unpack
   }
   return [`Load the Chrome extension once: open chrome://extensions, turn on "Developer mode" (top right),
 click "Load unpacked" and select ${folder}`,
-  'Click the Backdraw icon in Chrome\'s toolbar and follow its setup checklist (ChatGPT sign-in, project).'];
+  'Open the Extensions menu (the puzzle icon) in Chrome\'s toolbar, pin Backdraw, click it and follow its setup checklist (ChatGPT sign-in, project).'];
 }
 
 function desktopStep(dest, running) {
@@ -246,8 +246,8 @@ function installReport(r) {
   if (r.hasLegacy) lines.push('', `The old folder ${r.legacyDir} is no longer used; delete it by hand once Backdraw works.`);
   const steps = extensionSteps(r);
   if (r.desktopStale) steps.push(desktopStep(r.dest, r.desktopRunning));
+  if (r.reloaded) lines.push('', 'The running Chrome extension was reloaded with the new version.');
   if (steps.length) lines.push('', 'Next steps:', ...numbered(steps));
-  else lines.push('', 'The running Chrome extension was reloaded with the new version.');
   lines.push('', `The "${identity.MCP_NAME}" tools are ready in new Claude Code sessions.`);
   return lines.join('\n');
 }
@@ -297,17 +297,14 @@ async function install(ctx) {
 
 // ---------------------------------------------------------------- uninstall
 
-// What --uninstall leaves alone: the user's pictures and the settings/history folder.
+// What --uninstall leaves alone (the folders that are there): the user's pictures and the settings/history folder.
 function keptLines(dest, cfg) {
-  return [
-    ...(cfg.outputDir ? [`  Images folder     : ${cfg.outputDir}`] : []),
-    ...(cfg.collectionsDir ? [`  References folder : ${cfg.collectionsDir}`] : []),
-    `  Settings, history : ${path.join(dest, 'data')}`,
-  ];
+  return [['Images folder     ', cfg.outputDir], ['References folder ', cfg.collectionsDir], ['Settings, history ', path.join(dest, 'data')]]
+    .filter(([, dir]) => dir && fs.existsSync(dir)).map(([label, dir]) => `  ${label}: ${dir}`);
 }
 
 // Lists the targets without changing anything (no registry, CLI or file writes).
-function dryRunReport(c, { dest, desktopFiles, cfg }) {
+function dryRunReport(c, { dest, folders, desktopFiles, cfg }) {
   const configFile = c.platform.claudeConfigFile(c.home);
   const inFile = c.claudeCli ? [] : mcpEntriesInFile(c);
   return ['Dry run: nothing was changed. "node install.js --uninstall" would remove:',
@@ -319,7 +316,8 @@ function dryRunReport(c, { dest, desktopFiles, cfg }) {
     '  Claude desktop app chat config (a backup is made first; only while Claude is closed):',
     ...(desktopFiles.length ? desktopFiles.map(f => `    ${quoted(desktopEntriesIn(f))} from ${f}`) : ['    none (no Backdraw entry)']),
     'It keeps:', ...keptLines(dest, cfg),
-    `  The folder ${dest} itself and the Chrome extension (remove them by hand)`,
+    ...folders.map(d => `  The folder ${d} itself (delete it by hand)`),
+    '  The Chrome extension (remove it at chrome://extensions)',
   ].join('\n');
 }
 
@@ -330,7 +328,8 @@ async function uninstall(ctx) {
   const legacyDir = p.legacyInstallDir(c.home);
   const cfg = readJson(path.join(dest, 'data', 'config.json'), {}) || {};
   const desktopFiles = p.desktopConfigFiles().filter(f => desktopEntriesIn(f).length);
-  if (c.dryRun) return c.log(dryRunReport(c, { dest, desktopFiles, cfg }));
+  const folders = [dest, legacyDir].filter(d => fs.existsSync(d));
+  if (c.dryRun) return c.log(dryRunReport(c, { dest, folders, desktopFiles, cfg }));
 
   for (const name of [identity.HOST_NAME, LEGACY.HOST_NAME]) p.unregisterNativeHost(name);
   const mcpRemoved = unregisterMcp(c);
@@ -346,14 +345,14 @@ async function uninstall(ctx) {
     steps.push(`Claude desktop app (chat): ${desktopRunning ? 'Claude is running' : 'could not tell whether Claude is running'}, so its config was left alone.
 Quit Claude completely (also from the system tray), then run this again from PowerShell: ${desktopCommand(fs.existsSync(path.join(dest, 'install.js')) ? dest : c.src, '--uninstall')}`);
   }
-  const folders = [dest, legacyDir].filter(d => fs.existsSync(d));
   if (folders.length) steps.push(`Optionally delete ${folders.join(' and ')} by hand (that deletes the settings and job history too).`);
+  const kept = keptLines(dest, cfg);
   c.log(['Backdraw was uninstalled.',
     `  Chrome host entries : removed ${identity.HOST_NAME} and ${LEGACY.HOST_NAME} (where present)`,
     `  Claude Code MCP     : ${mcpRemoved.length ? `removed ${quoted(mcpRemoved)}` : 'no entry was registered'}`,
     ...(desktopLines.length ? desktopLines.map(l => `  Claude desktop app  : ${l}`)
       : [`  Claude desktop app  : ${desktopFiles.length ? 'left alone (see the next steps)' : 'no Backdraw entry'}`]),
-    'Kept:', ...keptLines(dest, cfg),
+    ...(kept.length ? ['Kept:', ...kept] : []),
     '', 'Next steps:', ...numbered(steps)].join('\n'));
 }
 

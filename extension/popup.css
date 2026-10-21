@@ -20,7 +20,7 @@ h2 small { color: var(--muted); font-size: 11px; font-weight: 400; }
 .settings label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 11px; }
 select { padding: 5px 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--field); color: var(--fg); font-size: 12px; }
 
-.btn { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--fg); }
+.btn { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--fg); overflow-wrap: anywhere; }
 .btn:hover:not(:disabled) { border-color: var(--accent); }
 .btn.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); font-weight: 600; }
 .btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
@@ -45,7 +45,7 @@ select { padding: 5px 6px; border: 1px solid var(--line); border-radius: 7px; ba
 .copy code { flex: 1; min-width: 0; padding: 6px 8px; font: 12px/1.4 Consolas, "Cascadia Mono", monospace; overflow-wrap: anywhere; }
 .copy button { flex: none; padding: 0 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--link); font-size: 12px; font-weight: 600; }
 .projects { display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow-y: auto; }
-.projects .btn { text-align: left; overflow-wrap: anywhere; }
+.projects .btn { text-align: left; }
 .spinner { display: inline-block; flex: none; width: 11px; height: 11px; margin-right: 6px; border: 2px solid var(--accent-soft); border-top-color: var(--accent);
   border-radius: 50%; vertical-align: -1px; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -65,13 +65,15 @@ details .steps { margin-top: 10px; }
 /* reference collections */
 #colList { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
 #colList .btn { display: flex; justify-content: space-between; gap: 8px; text-align: left; }
+#colList .btn span:first-child { min-width: 0; }
+#colList .count { flex: none; }
 #colList .count, #colPath { color: var(--muted); }
 #colHead { display: flex; align-items: center; gap: 8px; }
 #colName { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
 #colPath { margin: 4px 0 8px; font-size: 11px; overflow-wrap: anywhere; }
 #colDetail .actions, #colEdit { margin-bottom: 8px; }
 #colEdit { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-#colEdit p { width: 100%; margin: 0; }
+#colEdit p { width: 100%; margin: 0; overflow-wrap: anywhere; }
 #colEdit input { flex: 1; min-width: 0; padding: 5px 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--field); }
 select:focus-visible, #colEdit input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 #colGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; max-height: 280px; overflow-y: auto; }
