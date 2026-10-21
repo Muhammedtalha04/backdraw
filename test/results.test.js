@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { FINAL, DEFAULT_WAIT, EDIT_INTENT, waitSeconds, editCheckLines, resultLines } = require('../lib/results');
+const { FINAL, DEFAULT_WAIT, EDIT_INTENT, waitSeconds, editCheckLines, imageLines, resultLines } = require('../lib/results');
 
 const CHAT_URL = 'https://chatgpt.com/g/g-p-67a1b2c3d4e5f60718293a4b5c6d7e8f-images/c/6812a3b4-1c2d-8000-9e8f-0123456789ab';
 const job = fields => ({ id: 'img_1a2b3c4d', prompt: 'a void mage', images: [], copies: [], references: [], ...fields });
@@ -164,4 +164,159 @@ test('resultLines: failed and cancelled', () => {
 test('resultLines: a succeeded edit includes the edit check', () => {
   const t = text(job({ status: 'succeeded', prompt: 'düzenle: gözleri kapat', images: [{ path: 'a.png' }], editCheck: check(0.3) }));
   assert.match(t, /EDIT CHECK \(edited: false\)/);
+});
+
+// ---------------------------------------------------------------- aspect ratio and transparency
+
+const DIR = 'C:\\Pictures\\Backdraw\\';
+const RGBA = { colorType: 6, alphaChannel: true, trns: false };
+const RGB = { colorType: 2, alphaChannel: false, trns: false };
+const alpha = transparentShare => ({ transparentShare, opaqueShare: 1 - transparentShare });
+const succeeded = (images, fields) => job({ status: 'succeeded', images, ...fields });
+const RETRY = 'Tell the user; retry once in a fresh chat or remove the background with another tool.';
+
+test('resultLines: a cropped image shows both files', () => {
+  const lines = resultLines(succeeded([{
+    path: `${DIR}banner.png`, width: 2172, height: 543, aspect: '4:1', png: RGB, alpha: null,
+    full: { path: `${DIR}banner_full.png`, width: 2172, height: 724, bytes: 1 },
+  }]));
+  assert.deepEqual(lines, [
+    'SUCCESS — ChatGPT generated 1 image(s). Job img_1a2b3c4d.',
+    `Saved: ${DIR}banner.png (2172x543, cropped from the centre to 4:1)`,
+    `Full image before cropping: ${DIR}banner_full.png (2172x724)`,
+  ]);
+});
+
+test('resultLines: a crop that cut more than ChatGPT was told warns', () => {
+  const lines = (aspect, [w, h], [fw, fh]) => imageLines(job({}), { path: 'a.png', width: w, height: h, aspect, full: { path: 'a_full.png', width: fw, height: fh } });
+  const CHECK = 'Check the saved image for cut-off subjects or text; the full image is kept too.';
+  // A 4:1 job is drawn at 3:1 with the top and bottom 12.5% allowed to go; a 5:2 image loses more.
+  assert.equal(lines('4:1', [1983, 496], [1983, 793])[2],
+    `⚠ ChatGPT drew 1983x793 instead of 3:1, so the crop removed 37.5% of the height (18.7% at the top and bottom each; it was told only 12.5% each may be cut off). ${CHECK}`);
+  assert.match(lines('4:1', [1536, 384], [1536, 1024])[2], /^⚠ ChatGPT drew 1536x1024 instead of 3:1, so the crop removed 62\.5% of the height \(31\.3% at the top and bottom each; /);
+  assert.match(lines('1:4', [362, 1448], [1086, 1448])[2], /^⚠ ChatGPT drew 1086x1448 instead of 1:3, so the crop removed 66\.7% of the width \(33\.3% at the left and right each; it was told only 12\.5% /);
+  // A ratio ChatGPT draws itself: nothing was meant to be cut.
+  assert.equal(lines('16:9', [1024, 576], [1024, 1536])[2],
+    `⚠ ChatGPT drew 1024x1536 instead of 16:9, so the crop removed 62.5% of the height (31.3% at the top and bottom each). ${CHECK}`);
+  assert.match(lines('16:9', [1410, 793], [1983, 793])[2], /^⚠ ChatGPT drew 1983x793 instead of 16:9, so the crop removed 28\.9% of the width \(14\.4% at the left and right each\)\. /);
+  // Within 1% of the shape ChatGPT was asked for: as promised, no warning.
+  assert.equal(lines('4:1', [2172, 543], [2172, 724]).length, 2);
+  assert.equal(lines('4:1', [2172, 543], [2172, 730]).length, 2);
+  assert.equal(lines('4:1', [2160, 540], [2160, 730]).length, 3);
+  assert.equal(lines('100:27', [2172, 586], [2172, 724]).length, 2);
+  // Sizes unknown: nothing to compare.
+  assert.equal(imageLines(job({}), { path: 'a.png', aspect: '4:1', full: { path: 'a_full.png' } }).length, 2);
+});
+
+test('resultLines: an aspect ratio already within 1% is not cropped', () => {
+  assert.deepEqual(resultLines(succeeded([{ path: `${DIR}a.png`, width: 1672, height: 941, aspect: '16:9', full: null }])).slice(1), [
+    `Saved: ${DIR}a.png (1672x941)`,
+    'Aspect ratio: 16:9 requested, got 1672x941 (within 1%, not cropped).',
+  ]);
+  assert.match(text(succeeded([{ path: 'a.png', width: 1010, height: 1000, aspect: '1:1' }])), /got 1010x1000 \(within 1%, not cropped\)/);
+});
+
+test('resultLines: an image that should have been cropped but was not says so', () => {
+  assert.match(text(succeeded([{ path: 'a.png', width: 1254, height: 1254, aspect: '16:9' }])),
+    /^⚠ Aspect ratio: 16:9 requested, got 1254x1254; it could not be cropped\.$/m);
+  assert.match(text(succeeded([{ path: 'a.png', aspect: '16:9' }])), /^Aspect ratio: 16:9 requested; the image size is unknown, so it was not cropped\.$/m);
+});
+
+test('resultLines: no aspect asked, no aspect line', () => {
+  assert.deepEqual(resultLines(succeeded([{ path: 'a.png', width: 1254, height: 1254, aspect: null, full: null, png: RGBA, alpha: null }])).slice(1),
+    ['Saved: a.png (1254x1254)']);
+});
+
+test('resultLines: transparent background present', () => {
+  assert.equal(resultLines(succeeded([{ path: 'a.png', width: 2, height: 2, png: RGBA, alpha: alpha(0.6123) }], { transparent: true }))[2],
+    'Transparent background: yes — PNG with an alpha channel, 61% of the pixels are transparent.');
+  // A palette PNG with tRNS can be transparent too.
+  assert.match(text(succeeded([{ path: 'a.png', png: { colorType: 3, alphaChannel: false, trns: true }, alpha: alpha(0.3) }], { transparent: true })),
+    /Transparent background: yes — PNG with an alpha channel, 30% of the pixels are transparent\./);
+  // A WebP has no PNG header: the measured pixels decide.
+  assert.match(text(succeeded([{ path: 'a.webp', png: null, alpha: alpha(0.4) }], { transparent: true })), /Transparent background: yes — WebP with an alpha channel, 40%/);
+});
+
+test('resultLines: transparent background asked but no alpha channel', () => {
+  const missing = format => `⚠ TRANSPARENT BACKGROUND MISSING: ChatGPT returned an image without an alpha channel (${format}), so the background is not transparent. ${RETRY}`;
+  const line = im => resultLines(succeeded([im], { transparent: true }))[2];
+  assert.equal(line({ path: 'a.png', png: RGB, alpha: alpha(0) }), missing('RGB PNG'));
+  assert.equal(line({ path: 'a.png', png: { colorType: 0, alphaChannel: false, trns: false }, alpha: alpha(0) }), missing('grayscale PNG'));
+  assert.equal(line({ path: 'a.png', png: { colorType: 3, alphaChannel: false, trns: false }, alpha: alpha(0) }), missing('palette PNG'));
+  assert.equal(line({ path: 'a.jpg', png: null, alpha: alpha(0) }), missing('JPEG'));
+  assert.equal(line({ path: 'a.webp', png: null, alpha: alpha(0) }), missing('WebP'));
+  // A JPEG is never transparent, whatever the measurement says.
+  assert.equal(line({ path: 'a.jpg', png: null, alpha: alpha(0.5) }), missing('JPEG'));
+});
+
+test("resultLines: a cropped image is judged by ChatGPT's original file", () => {
+  const lines = resultLines(succeeded([{
+    path: 'banner.png', width: 2172, height: 543, aspect: '4:1', png: RGB, alpha: alpha(0),
+    full: { path: 'banner_full.png', width: 2172, height: 724 },
+  }], { transparent: true }));
+  assert.equal(lines.length, 4);
+  assert.match(lines[3], /^⚠ TRANSPARENT BACKGROUND MISSING: ChatGPT returned an image without an alpha channel \(RGB PNG\)/);
+  assert.match(text(succeeded([{ path: 'b.png', aspect: '4:1', png: null, alpha: alpha(0.2), full: { path: 'b_full.jpg' } }], { transparent: true })),
+    /without an alpha channel \(JPEG\)/);
+});
+
+test('resultLines: an alpha channel without transparent pixels', () => {
+  const line = share => resultLines(succeeded([{ path: 'a.png', png: RGBA, alpha: alpha(share) }], { transparent: true }))[2];
+  assert.equal(line(0), `⚠ TRANSPARENT BACKGROUND MISSING: the PNG has an alpha channel but every pixel is opaque. ${RETRY}`);
+  assert.match(line(0.02), /^⚠ TRANSPARENT BACKGROUND MISSING: the PNG has an alpha channel but almost every pixel is opaque\./);
+  assert.match(line(0.021), /^Transparent background: yes — PNG with an alpha channel, 2% of the pixels/);
+});
+
+test('resultLines: alpha channel but no measurement', () => {
+  assert.match(text(succeeded([{ path: 'a.png', png: RGBA, alpha: null }], { transparent: true })),
+    /^Transparent background: PNG with an alpha channel; how much of it is transparent could not be measured\.$/m);
+});
+
+test('resultLines: no PNG header and no measurement: no verdict on the background', () => {
+  // The extension could not decode the image, or is too old to measure it.
+  const line = im => resultLines(succeeded([im], { transparent: true }))[2];
+  assert.equal(line({ path: 'a.webp', png: null, alpha: null }), 'Transparent background: WebP; whether it is transparent could not be measured.');
+  assert.equal(line({ path: 'a.gif', png: null }), 'Transparent background: GIF; whether it is transparent could not be measured.');
+  assert.equal(line({ path: 'a.bin', png: null, alpha: null }), 'Transparent background: image; whether it is transparent could not be measured.');
+  // A JPEG has no alpha channel, measured or not.
+  assert.match(line({ path: 'a.jpg', png: null, alpha: null }), /^⚠ TRANSPARENT BACKGROUND MISSING: .*\(JPEG\)/);
+});
+
+test('resultLines: no transparency asked, no transparency line', () => {
+  assert.doesNotMatch(text(succeeded([{ path: 'a.png', png: RGB, alpha: alpha(0) }])), /TRANSPARENT|Transparent/);
+  assert.doesNotMatch(text(succeeded([{ path: 'a.png', png: RGB }], { transparent: false })), /TRANSPARENT|Transparent/);
+});
+
+test('resultLines: several images keep their lines together', () => {
+  const lines = resultLines(succeeded([
+    { path: 'a.png', width: 1983, height: 496, aspect: '4:1', png: RGBA, alpha: alpha(0.5), full: { path: 'a_full.png', width: 1983, height: 793 } },
+    { path: 'b.png', width: 1672, height: 941, aspect: '4:1', png: RGB, alpha: alpha(0), full: null },
+  ], { transparent: true, copies: ['D:\\x\\a.png'] }));
+  assert.deepEqual(lines.slice(1).map(l => l.slice(0, 24)), [
+    'Saved: a.png (1983x496, ', 'Full image before croppi', '⚠ ChatGPT drew 1983x793 ', 'Transparent background: ',
+    'Saved: b.png (1672x941)', '⚠ Aspect ratio: 4:1 requ', '⚠ TRANSPARENT BACKGROUND',
+    'Copied to: D:\\x\\a.png',
+  ]);
+});
+
+test('resultLines: a failed job with an aspect ratio says how to fetch it cropped the same way', () => {
+  const hint = 'If the chat finishes later, fetch_images(conversation_url=<the link above>, aspect_ratio="4:1") saves the image cropped the same way.';
+  const failed = fields => resultLines(job({ status: 'failed', error: 'ChatGPT did not finish in time.', reason: 'timeout', ...fields }));
+  assert.deepEqual(failed({ conversationUrl: CHAT_URL, aspect: '4:1' }).slice(1), [`ChatGPT conversation: ${CHAT_URL}`, hint]);
+  assert.ok(!failed({ conversationUrl: CHAT_URL, aspect: null }).some(l => l.includes('fetch_images')));
+  assert.ok(!failed({ aspect: '4:1' }).some(l => l.includes('fetch_images')));
+  assert.ok(!resultLines(job({ status: 'succeeded', conversationUrl: CHAT_URL, aspect: '4:1' })).some(l => l.includes('fetch_images')));
+});
+
+test('imageLines: one image on its own', () => {
+  assert.deepEqual(imageLines(job({}), { path: 'a.png', width: 1, height: 1 }), ['Saved: a.png (1x1)']);
+});
+
+test('fetched (collect) images are cropped without blaming ChatGPT for the shape', () => {
+  const im = { path: 'C:\out\a.png', width: 941, height: 941, aspect: '1:1', full: { path: 'C:\out\a_full.png', width: 1672, height: 941 } };
+  const fetched = resultLines({ id: 'img_c', mode: 'collect', status: 'succeeded', images: [im] }).join('\n');
+  assert.match(fetched, /cropped from the centre to 1:1/);
+  assert.doesNotMatch(fetched, /ChatGPT drew/);
+  const generated = resultLines({ id: 'img_g', mode: 'generate', status: 'succeeded', images: [im] }).join('\n');
+  assert.match(generated, /⚠ ChatGPT drew 1672x941 instead of 1:1/);
 });

@@ -2,6 +2,9 @@
 // tab it opens in the background: the tab is never activated and no window is ever focused.
 // Only prompts, reference images, progress, chat links and image bytes cross the bridge; cookies,
 // tokens and passwords are never read.
+importScripts('aspect.js');
+
+const { cropRect } = self.BackdrawAspect;
 const HOST = 'io.github.muhammedtalha04.backdraw'; // identity.js HOST_NAME
 const VERSION = chrome.runtime.getManifest().version;
 const HOME = 'https://chatgpt.com/';
@@ -639,20 +642,70 @@ function bytesToB64(bytes) {
   return btoa(bin);
 }
 
-async function makePreview(b64, mime) {
-  const bmp = await createImageBitmap(new Blob([b64ToBytes(b64)], { type: mime || 'image/png' }));
-  const scale = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
-  const w = Math.max(1, Math.round(bmp.width * scale));
-  const h = Math.max(1, Math.round(bmp.height * scale));
+const blobToB64 = async blob => bytesToB64(new Uint8Array(await blob.arrayBuffer()));
+
+// The part r of the image on a canvas of its own size.
+function drawPart(bmp, r) {
+  const canvas = new OffscreenCanvas(r.width, r.height);
+  canvas.getContext('2d', { willReadFrequently: true }).drawImage(bmp, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
+  return canvas;
+}
+
+// Share of the pixels that are see-through (alpha < 250) and fully opaque, from every 4th pixel.
+function measureAlpha(canvas) {
+  const { data } = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height);
+  let n = 0;
+  let clear = 0;
+  let opaque = 0;
+  for (let i = 3; i < data.length; i += 16) {
+    n++;
+    if (data[i] < 250) clear++;
+    else if (data[i] === 255) opaque++;
+  }
+  const share = x => (n ? Math.round((x / n) * 10000) / 10000 : 0);
+  return { transparentShare: share(clear), opaqueShare: share(opaque) };
+}
+
+// A JPEG of at most 1024 px. Transparent parts show over a light checkerboard, as image editors
+// show them, so a see-through background can be told apart from a white one.
+async function makePreview(bmp, r, checker) {
+  const scale = Math.min(1, 1024 / Math.max(r.width, r.height));
+  const w = Math.max(1, Math.round(r.width * scale));
+  const h = Math.max(1, Math.round(r.height * scale));
   const canvas = new OffscreenCanvas(w, h);
   const g = canvas.getContext('2d');
   g.fillStyle = '#ffffff';
   g.fillRect(0, 0, w, h);
-  g.drawImage(bmp, 0, 0, w, h);
-  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.86 });
-  const result = { width: bmp.width, height: bmp.height, preview: bytesToB64(new Uint8Array(await blob.arrayBuffer())) };
-  bmp.close();
-  return result;
+  if (checker) {
+    const size = 16;
+    g.fillStyle = '#e2e2e2';
+    for (let y = 0; y < h; y += size) for (let x = (y / size) % 2 ? size : 0; x < w; x += 2 * size) g.fillRect(x, y, size, size);
+  }
+  g.drawImage(bmp, r.x, r.y, r.width, r.height, 0, 0, w, h);
+  return blobToB64(await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.86 }));
+}
+
+// Decodes a downloaded image once. With an aspect ratio it is cropped from the centre (exported as
+// PNG, which keeps any alpha); a transparent job measures the alpha of the (cropped) image; the
+// preview shows the cropped version.
+async function processImage(b64, mime, job) {
+  const bmp = await createImageBitmap(new Blob([b64ToBytes(b64)], { type: mime || 'image/png' }));
+  try {
+    const out = { width: bmp.width, height: bmp.height, crop: null, alpha: null, preview: null };
+    const rect = job.aspect ? cropRect(bmp.width, bmp.height, job.aspect.w, job.aspect.h) : null;
+    const r = rect || { x: 0, y: 0, width: bmp.width, height: bmp.height };
+    let canvas = null;
+    if (rect) {
+      canvas = drawPart(bmp, rect);
+      out.crop = { data: await blobToB64(await canvas.convertToBlob({ type: 'image/png' })), mime: 'image/png', width: rect.width, height: rect.height };
+    }
+    if (job.transparent) out.alpha = measureAlpha(canvas || drawPart(bmp, r));
+    out.preview = await makePreview(bmp, r, !!out.alpha && out.alpha.transparentShare > 0)
+      .catch(e => { log('warn', 'preview failed', String(e)); return null; });
+    return out;
+  } finally {
+    bmp.close();
+  }
 }
 
 async function fetchFromWorker(src) {
@@ -674,8 +727,11 @@ async function downloadImages(ctx, images) {
     }
     if (ctx.job.debug) log('debug', `image downloaded via ${r.via || 'worker'}`, { bytes: r.size, mime: r.mime });
     let meta = {};
-    try { meta = await makePreview(r.data, r.mime); } catch (e) { log('warn', 'preview failed', String(e)); }
-    out.push({ data: r.data, mime: r.mime, width: meta.width || im.w || null, height: meta.height || im.h || null, preview: meta.preview || null });
+    try { meta = await processImage(r.data, r.mime, ctx.job); } catch (e) { log('warn', 'image processing failed', String(e)); }
+    out.push({
+      data: r.data, mime: r.mime, width: meta.width || im.w || null, height: meta.height || im.h || null, preview: meta.preview || null,
+      crop: meta.crop || null, alpha: meta.alpha || null,
+    });
   }
   if (!out.length) throw fail('download_failed', `The image was generated but could not be downloaded. Open the chat: ${ctx.conversationUrl}`);
   return out;

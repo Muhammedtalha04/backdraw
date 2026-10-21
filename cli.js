@@ -9,9 +9,10 @@ const USAGE = `Usage: node cli.js <command>
   status                          Bridge status (Chrome connected, selected project, queue)
   projects                        List ChatGPT projects
   select <name | link>            Select the project where images are generated
-  generate "<prompt>" [--ref IMAGE]... [--url CHAT_LINK] [--reattach] [--out FOLDER] [--raw] [--wait 300]
-                                  Generate an image; --ref attaches a reference/image to edit (up to 4)
-  collect <chat link> [--out FOLDER]   Download the latest images of an existing chat (sends nothing)
+  generate "<prompt>" [--ref IMAGE]... [--url CHAT_LINK] [--aspect W:H] [--transparent] [--reattach] [--out FOLDER] [--raw] [--wait 300]
+                                  Generate an image; --ref attaches a reference/image to edit (up to 4),
+                                  --aspect 16:9 sets the shape (1:4 to 4:1), --transparent asks for a see-through background
+  collect <chat link> [--aspect W:H] [--out FOLDER]   Download the latest images of an existing chat (sends nothing), cropped to W:H
   job <id> [--wait 60]            Show a job's status
   cancel <id>                     Cancel a job
   outdir <folder>                 Change the central images folder
@@ -19,7 +20,7 @@ const USAGE = `Usage: node cli.js <command>
   diagnose [link] [--selector CSS] [--max N] [--worker]   Page diagnostics
   reload                          Reload the Chrome extension`;
 
-const FLAGS = { booleans: ['raw', 'reattach', 'worker'], lists: ['ref'] };
+const FLAGS = { booleans: ['raw', 'reattach', 'worker', 'transparent'], lists: ['ref'] };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const print = v => console.log(JSON.stringify(v, null, 2));
@@ -41,6 +42,7 @@ async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const { pos, flags } = parseArgs(rest, FLAGS);
   const copyTo = typeof flags.out === 'string' ? path.resolve(flags.out) : undefined;
+  if (flags.aspect === true) throw new Error('--aspect needs a ratio, e.g. --aspect 16:9.');
   switch (cmd) {
     case 'status': return print(await bridge.call('status'));
     case 'projects': return print(await bridge.call('list_projects', {}, 130000));
@@ -55,13 +57,14 @@ async function main() {
       const job = await bridge.call('generate', {
         prompt, copyTo, references: bridge.readReferences(flags.ref ? [].concat(flags.ref) : []),
         startUrl: typeof flags.url === 'string' ? flags.url : undefined, sendAsIs: !!flags.raw, autoReattach: !!flags.reattach,
+        aspect: flags.aspect, transparent: !!flags.transparent,
       }, 60000);
       console.error(`Job: ${job.id}`);
       return print(await follow(job.id, Number(flags.wait) || 600));
     }
     case 'collect': {
       if (!pos[0]) throw new Error('A chat link is required.');
-      const job = await bridge.call('generate', { mode: 'collect', startUrl: pos[0], copyTo });
+      const job = await bridge.call('generate', { mode: 'collect', startUrl: pos[0], copyTo, aspect: flags.aspect });
       console.error(`Job: ${job.id}`);
       return print(await follow(job.id, Number(flags.wait) || 300));
     }

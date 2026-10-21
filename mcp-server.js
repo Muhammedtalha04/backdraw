@@ -15,12 +15,13 @@ const INSTRUCTIONS = `Generates images with the user's own ChatGPT account (alre
 - When the user asks for an image "with ChatGPT" (in any language), call generate_image with a detailed, self-contained prompt.
 - generate_image and fetch_images return within about ${DEFAULT_WAIT} seconds. Generating usually takes 1-3 minutes, so the first result is often STILL RUNNING or QUEUED with a job id: keep calling job_status(job_id, wait_seconds=${DEFAULT_WAIT}) until it reports a final status. Do not call generate_image again for the same request while its job is still running.
 - To EDIT an image or keep a character consistent, pass the image file(s) in reference_images (e.g. a file saved by an earlier call). A fresh chat with reference_images is the most reliable way to edit; long revision chains via conversation_url make ChatGPT lose track of earlier images.
+- For a specific shape (banner, avatar, phone wallpaper) pass aspect_ratio instead of describing the size in the prompt; for stickers/logos/icons that need a see-through background pass transparent_background=true and read the transparency line in the result.
 - Read every result line: NEEDS REFERENCE IMAGE means ChatGPT could not reach the image to edit; CHATGPT REPLIED WITHOUT AN IMAGE shows ChatGPT's own text. Never resend the identical prompt in a loop; follow the next step given in the result.
 - An EDIT CHECK warning means ChatGPT drew a new picture instead of editing; tell the user and retry with reference_images in a fresh chat if an exact edit is needed.
 - The work happens in a background Chrome tab; never tell the user to switch tabs unless a result says NEEDS USER ACTION.
 - NEEDS USER ACTION means ChatGPT shows a login or human-verification (CAPTCHA) page: ask the user to open the ChatGPT tab in Chrome and finish it themselves. Never try to bypass it. The job continues automatically afterwards (check with job_status).
 - If no project is selected, call list_projects, then select_project with the user's images project.
-- If a job timed out but has a conversation link, fetch_images can still download the result later.
+- If a job timed out but has a conversation link, fetch_images can still download the result later; pass the job's aspect_ratio again so it is cropped the same way.
 - Report the saved file path(s) and the ChatGPT conversation link to the user.`;
 
 // Shared by the tools that wait for a job.
@@ -41,12 +42,22 @@ const TOOLS = [
       "NEEDS REFERENCE IMAGE / CHATGPT REPLIED WITHOUT AN IMAGE together with ChatGPT's own reply text; " +
       'or, while ChatGPT is still working, STILL RUNNING / QUEUED with a job id: then keep calling job_status with that job_id. ' +
       "Use it whenever the user asks for an image, visual, illustration or concept art with ChatGPT, in any language. " +
-      'Write a detailed, self-contained prompt (subject, style, composition, colors, mood, aspect ratio). ' +
+      'Write a detailed, self-contained prompt (subject, style, composition, colors, mood); give the shape in aspect_ratio rather than in the prompt. ' +
       'To edit an image or keep a character consistent, pass the image file(s) in reference_images: a fresh chat with reference_images is the most reliable way to edit.',
     inputSchema: {
       type: 'object',
       properties: {
         prompt: { type: 'string', description: 'Full image description or edit instructions, in any language.' },
+        aspect_ratio: {
+          type: 'string',
+          description: 'Optional shape as W:H, e.g. 1:1, 3:2, 2:3, 4:3, 3:4, 16:9, 9:16, 4:5, 5:2 (Discord banner) or 3:1 (header). ' +
+            'Any W:H with whole numbers between 1:4 and 4:1 works (not 1.5:1: use 3:2). ChatGPT draws 1:3 to 3:1 itself; wider or taller shapes ' +
+            'are drawn at 3:1 / 1:3 and cropped. An image more than 1% off is cropped from the centre to this ratio (to the nearest pixel), and the full image is kept too.',
+        },
+        transparent_background: {
+          type: 'boolean', default: false,
+          description: 'Ask for a PNG with a transparent background (stickers, logos, icons, sprites). The result says whether the saved image really has transparent pixels.',
+        },
         reference_images: {
           type: 'array', items: { type: 'string' }, maxItems: 4,
           description: 'Optional local image files (png/jpg/webp/gif, up to 4) attached to the message, e.g. the image to edit or a character sheet. Paths saved by earlier calls work directly.',
@@ -115,6 +126,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         conversation_url: { type: 'string', description: 'ChatGPT conversation link (https://chatgpt.com/…/c/…).' },
+        aspect_ratio: { type: 'string', description: 'Optional W:H (between 1:4 and 4:1, e.g. 16:9) to crop the downloaded images to, from the centre; the full images are kept too. For the result of a generate_image job, pass its aspect_ratio again.' },
         output_dir: { type: 'string', description: 'Optional folder to also copy the image(s) into (absolute path preferred).' },
         wait_seconds: WAIT_SECONDS,
         include_preview: { type: 'boolean', default: true, description: 'Attach a downscaled preview.' },
@@ -265,6 +277,7 @@ async function generateImage(args, call) {
   const references = bridge.readReferences(args.reference_images);
   const job = await bridge.call('generate', {
     prompt, references, autoReattach: !!args.auto_reattach, sendAsIs: !!args.send_as_is,
+    aspect: args.aspect_ratio, transparent: !!args.transparent_background,
     copyTo: args.output_dir ? path.resolve(String(args.output_dir)) : undefined,
     startUrl: args.conversation_url ? String(args.conversation_url) : undefined,
   }, 60000);
@@ -277,7 +290,7 @@ async function fetchImages(args, call) {
   const url = String(args.conversation_url || '').trim();
   if (!url) return textResult('conversation_url is required.', true);
   const copyTo = args.output_dir ? path.resolve(String(args.output_dir)) : undefined;
-  const job = await bridge.call('generate', { mode: 'collect', startUrl: url, copyTo });
+  const job = await bridge.call('generate', { mode: 'collect', startUrl: url, copyTo, aspect: args.aspect_ratio });
   const done = await waitForJob(job.id, secondsLeft(deadline), call);
   return jobResult(await finish(done), args.include_preview !== false);
 }

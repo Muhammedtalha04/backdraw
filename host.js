@@ -13,6 +13,8 @@ const shared = require('./shared');
 const { stamp, slugify, sniffExt } = require('./lib/naming');
 const { normName, parseProjectUrl, pickProject } = require('./lib/projects');
 const { buildText } = require('./lib/prompt');
+const { aspectOption } = require('./lib/aspect');
+const { pngInfo } = require('./lib/png');
 
 const VERSION = shared.VERSION;
 const LOG_FILE = path.join(shared.LOG_DIR, 'host.log');
@@ -171,10 +173,12 @@ function createJob(p) {
     if (r.data.length * 0.75 > MAX_REF_BYTES) throw new shared.BridgeError(`Reference "${r.name}" is larger than 20 MB.`, 'BAD_REQUEST');
   }
   if (mode === 'collect' && refs.length) throw new shared.BridgeError('Reference images cannot be used when only fetching images.', 'BAD_REQUEST');
+  let aspect;
+  try { aspect = aspectOption(p.aspect); } catch (e) { throw new shared.BridgeError(e.message, 'BAD_REQUEST'); }
   const job = {
     id: `img_${crypto.randomBytes(4).toString('hex')}`,
     mode, status: 'queued', step: 'queued', message: 'Waiting for its turn',
-    prompt, sendAsIs: !!p.sendAsIs, startUrl, project: startUrl ? null : config.project,
+    prompt, sendAsIs: !!p.sendAsIs, aspect, transparent: !!p.transparent, startUrl, project: startUrl ? null : config.project,
     // outputDir: legacy clients, the host writes a copy there. copyTo: the MCP server copies itself
     // (it runs in the caller's context, so the copy lands where the caller can see it).
     outputDir: p.outputDir || null, copyTo: p.copyTo || null, copies: [],
@@ -211,6 +215,7 @@ function pump() {
     job: {
       id: job.id, mode: job.mode, text: job.mode === 'collect' ? '' : buildText(job), startUrl: job.startUrl || job.project.url,
       timeoutSec: job.timeoutSec, debug: config.debug, autoReattach: job.autoReattach,
+      aspect: job.aspect ? job.aspect.target : null, transparent: !!job.transparent,
     },
   });
   clearTimeout(watchdog);
@@ -296,6 +301,8 @@ function uniquePath(dir, base, ext) {
 }
 
 // Every image is saved in the central images folder. A legacy outputDir request gets an extra copy.
+// When the extension cropped an image to the asked aspect ratio, the crop is the main file and
+// ChatGPT's original is kept next to it as <name>_full.
 function saveImages(job, images, title) {
   fs.mkdirSync(config.outputDir, { recursive: true });
   fs.mkdirSync(shared.PREVIEW_DIR, { recursive: true });
@@ -308,13 +315,23 @@ function saveImages(job, images, title) {
     const mimeExt = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[String(img.mime).split(';')[0]];
     const name = images.length > 1 ? `${base}-${i + 1}` : base;
     const ext = sniffExt(buf) || mimeExt || 'png';
-    const file = uniquePath(config.outputDir, name, ext);
-    fs.writeFileSync(file, buf);
+    const cropped = img.crop ? Buffer.from(img.crop.data || '', 'base64') : null;
+    const crop = cropped && cropped.length >= 100 ? cropped : null;
+    const main = crop || buf;
+    const mainExt = crop ? 'png' : ext;
+    const file = uniquePath(config.outputDir, name, mainExt);
+    fs.writeFileSync(file, main);
+    let full = null;
+    if (crop) {
+      const fullFile = uniquePath(config.outputDir, `${path.basename(file, `.${mainExt}`)}_full`, ext);
+      fs.writeFileSync(fullFile, buf);
+      full = { path: fullFile, width: img.width || null, height: img.height || null, bytes: buf.length };
+    }
     if (job.outputDir && path.resolve(job.outputDir) !== path.resolve(config.outputDir)) {
       try {
         fs.mkdirSync(job.outputDir, { recursive: true });
-        const copy = uniquePath(job.outputDir, name, ext);
-        fs.writeFileSync(copy, buf);
+        const copy = uniquePath(job.outputDir, name, mainExt);
+        fs.writeFileSync(copy, main);
         job.copies.push(copy);
       } catch (e) { log('warn', 'copy to output_dir failed', e.message); }
     }
@@ -323,7 +340,14 @@ function saveImages(job, images, title) {
       preview = path.join(shared.PREVIEW_DIR, `${job.id}-${i + 1}.jpg`);
       fs.writeFileSync(preview, Buffer.from(img.preview, 'base64'));
     }
-    return { path: file, width: img.width || null, height: img.height || null, bytes: buf.length, preview };
+    // From ChatGPT's own bytes: a cropped copy is always RGBA, so only the original tells whether
+    // ChatGPT sent an alpha channel.
+    const info = pngInfo(buf);
+    return {
+      path: file, width: (crop ? img.crop.width : img.width) || null, height: (crop ? img.crop.height : img.height) || null,
+      bytes: main.length, preview, full, aspect: job.aspect ? job.aspect.target.label : null,
+      png: info && { colorType: info.colorType, alphaChannel: info.alphaChannel, trns: info.trns }, alpha: img.alpha || null,
+    };
   });
 }
 
@@ -417,6 +441,7 @@ function publicJob(j) {
     conversationUrl: j.conversationUrl, startUrl: j.startUrl, images: j.images, assistantText: j.assistantText,
     error: j.error, reason: j.reason, createdAt: j.createdAt, startedAt: j.startedAt, finishedAt: j.finishedAt,
     references: j.references || [], reattached: !!j.reattached, editCheck: j.editCheck || null,
+    aspect: j.aspect ? j.aspect.target.label : null, transparent: !!j.transparent,
     copyTo: j.copyTo || null, copies: j.copies || [],
     chatImages: j.status === 'needs_reference' || j.status === 'text_reply' ? imagesFromChat(j) : undefined,
     queuePosition: j.status === 'queued' ? jobs.filter(x => x.status === 'queued').indexOf(j) + 1 : undefined,

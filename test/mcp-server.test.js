@@ -9,6 +9,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const test = require('node:test');
 const identity = require('../identity');
+const { aspectOption } = require('../lib/aspect');
 
 const SERVER = path.join(__dirname, '..', 'mcp-server.js');
 const TAG = `backdraw-test-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
@@ -78,7 +79,12 @@ const host = net.createServer(sock => {
     const req = JSON.parse(buf.slice(0, nl));
     hostCalls.push(req.method);
     const fn = handlers[req.method];
-    const reply = fn ? { id: req.id, result: await fn(req.params) } : { id: req.id, error: { message: `no ${req.method}`, code: 'BAD_REQUEST' } };
+    let reply;
+    try {
+      reply = fn ? { id: req.id, result: await fn(req.params) } : { id: req.id, error: { message: `no ${req.method}`, code: 'BAD_REQUEST' } };
+    } catch (e) {
+      reply = { id: req.id, error: { message: e.message, code: 'BAD_REQUEST' } }; // as the host answers a rejected request
+    }
     if (!sock.destroyed) sock.write(JSON.stringify(reply) + '\n');
   });
 });
@@ -168,6 +174,24 @@ test('legacy tools/list: fixed order, annotations, 45-second default waits, no m
   assert.deepEqual(tool('cancel_job').annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true });
   assert.deepEqual(tool('list_projects').annotations, { readOnlyHint: true, openWorldHint: true });
   assert.deepEqual(tool('select_project').annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+});
+
+test('tools/list: aspect_ratio and transparent_background', async () => {
+  const { result } = await request('tools/list', {});
+  const props = name => result.tools.find(t => t.name === name).inputSchema.properties;
+  const generate = props('generate_image');
+  assert.equal(generate.aspect_ratio.type, 'string');
+  for (const s of ['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '4:5', '5:2 (Discord banner)', '3:1 (header)', 'between 1:4 and 4:1', 'not 1.5:1']) {
+    assert.ok(generate.aspect_ratio.description.includes(s), s);
+  }
+  assert.deepEqual({ type: generate.transparent_background.type, dflt: generate.transparent_background.default }, { type: 'boolean', dflt: false });
+  assert.equal(props('fetch_images').aspect_ratio.type, 'string');
+  assert.equal(props('fetch_images').transparent_background, undefined);
+  const init = await request('initialize', { protocolVersion: '2025-06-18' });
+  assert.match(init.result.instructions, /pass aspect_ratio instead of describing the size in the prompt; .* pass transparent_background=true and read the transparency line/);
+  // The crop target stays with the generate_image job, so fetching its result later needs it again.
+  assert.match(init.result.instructions, /fetch_images can still download the result later; pass the job's aspect_ratio again so it is cropped the same way\./);
+  assert.match(props('fetch_images').aspect_ratio.description, /For the result of a generate_image job, pass its aspect_ratio again\.$/);
 });
 
 test('unknown methods are "method not found"', async () => {
@@ -282,6 +306,24 @@ test('with a fake host', async t => {
     assert.match(textOf(res), /STILL RUNNING/);
     // The second left after "generate" are used up, so only the first status check happens.
     assert.deepEqual(hostCalls, ['generate', 'job']);
+  });
+
+  await t.test('aspect_ratio and transparent_background are passed on to the host', async () => {
+    const sent = [];
+    handlers = { generate: p => { sent.push(p); return fakeJob(); }, job: () => fakeJob() };
+    await callTool('generate_image', { prompt: 'x', aspect_ratio: '4:1', transparent_background: true, wait_seconds: 0 });
+    await callTool('generate_image', { prompt: 'x', wait_seconds: 0 });
+    await callTool('fetch_images', { conversation_url: 'https://chatgpt.com/c/6812a3b4-1c2d-8000-9e8f-0123456789ab', aspect_ratio: '16:9', wait_seconds: 0 });
+    assert.deepEqual(sent.map(p => [p.aspect, p.transparent]), [['4:1', true], [undefined, false], ['16:9', undefined]]);
+    assert.equal(sent[2].mode, 'collect');
+  });
+
+  await t.test('an aspect_ratio the host rejects is an ERROR result with its reason', async () => {
+    // The host's createJob runs the same check (lib/aspect aspectOption) and answers BAD_REQUEST.
+    handlers = { generate: p => { aspectOption(p.aspect); return fakeJob(); } };
+    const res = await callTool('generate_image', { prompt: 'x', aspect_ratio: '9:1', wait_seconds: 0 });
+    assert.equal(res.result.isError, true);
+    assert.equal(textOf(res), 'ERROR — aspect_ratio 9:1 is outside the supported range 1:4 to 4:1 (ChatGPT itself draws 1:3 to 3:1).');
   });
 
   await t.test('bridge status: connection, project, folder, running job, queue and recent jobs', async () => {
