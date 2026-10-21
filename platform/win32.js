@@ -16,16 +16,17 @@ function pipePath() {
 // In the home folder, not under AppData: the Claude desktop app is an MSIX package, and AppData
 // writes made from its processes are redirected into the package's private storage, where Chrome
 // can't see them. The home folder itself is not redirected.
-function installDir() {
-  return path.join(os.homedir(), identity.INSTALL_DIR_NAME);
+// home: the user's home folder; install.js passes it so its tests can use a temporary one.
+function installDir(home = os.homedir()) {
+  return path.join(home, identity.INSTALL_DIR_NAME);
 }
 
-function legacyInstallDir() {
-  return path.join(os.homedir(), ...identity.LEGACY.INSTALL_DIR);
+function legacyInstallDir(home = os.homedir()) {
+  return path.join(home, ...identity.LEGACY.INSTALL_DIR);
 }
 
-function claudeConfigFile() {
-  return path.join(os.homedir(), '.claude.json');
+function claudeConfigFile(home = os.homedir()) {
+  return path.join(home, '.claude.json');
 }
 
 // Chat MCP config of the Claude desktop app: the MSIX package's private copy and the classic one.
@@ -101,6 +102,11 @@ function registerNativeHost(hostName, manifestPath) {
   return key;
 }
 
+// Where a host's registration lives, for display (e.g. the uninstall dry run).
+function nativeHostEntry(hostName) {
+  return regKey(hostName);
+}
+
 function unregisterNativeHost(hostName) {
   try { realRegistry(hostName, 'delete'); } catch {}
   try { execFileSync('reg.exe', ['delete', regKey(hostName), '/f'], { stdio: 'ignore' }); } catch {}
@@ -123,6 +129,6 @@ function claudeCli() {
 
 module.exports = {
   pipePath, installDir, legacyInstallDir, claudeConfigFile, desktopConfigFiles, desktopAppRunning, parseClaudeProcesses,
-  writeHostLauncher, registerNativeHost, unregisterNativeHost,
+  writeHostLauncher, registerNativeHost, unregisterNativeHost, nativeHostEntry,
   picturesDir, claudeCli,
 };

@@ -82,7 +82,7 @@ function collectionsOffline() {
 // Chrome has no "replace the menu": remove everything and create it again, one rebuild at a time.
 // A rebuild that a newer one has overtaken is skipped, so the last call always wins.
 function rebuildMenu() {
-  const items = backdrawMenus.menuItems(hostReady ? collections : null, key => chrome.i18n.getMessage(key) || key);
+  const items = backdrawMenus.menuItems(hostReady ? collections : null, key => i18n.t(key));
   const sig = latestMenu = JSON.stringify(items);
   menuChain = menuChain.then(async () => {
     if (sig !== latestMenu || sig === shownMenu) return;
@@ -95,6 +95,10 @@ function rebuildMenu() {
 
 chrome.runtime.onInstalled.addListener(() => rebuildMenu());
 chrome.runtime.onStartup.addListener(() => rebuildMenu());
+// The titles follow the language picked in the popup. A menu asked for before the choice was read
+// is built again (unchanged titles make that a no-op).
+i18n.watch(() => rebuildMenu());
+i18n.load().then(() => { if (latestMenu !== null) rebuildMenu(); });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   const item = backdrawMenus.parseMenuId(info.menuItemId);
@@ -325,7 +329,8 @@ function flashBadge(text, error) {
   badgeTimer = setTimeout(() => { setBadge(); chrome.action.setTitle({ title: 'Backdraw' }).catch(() => {}); }, error ? 4000 : 2500);
 }
 
-async function notifyUser(tabId, text, error) {
+async function notifyUser(tabId, message, error) {
+  const text = i18n.shortPath(message, hostHome); // an error from the host may name a file in the user's folder
   if (tabId >= 0 && await showPageToast(tabId, text, error ? 'error' : 'ok')) return;
   flashBadge(text, error);
 }
@@ -345,7 +350,12 @@ async function openNewCollection(source) {
   const entry = { source, at: Date.now(), image: prepareImage(source) };
   entry.image.catch(() => {}); // shown in the window when it asks
   pendingNew.set(key, entry);
-  const win = await chrome.windows.create({ url: chrome.runtime.getURL(`collection.html#${key}`), type: 'popup', width: 380, height: 470, focused: true });
+  // Centred over the browser window of the click; Chrome would put it in the screen's corner.
+  const over = await chrome.tabs.get(source.tabId).then(tab => chrome.windows.get(tab.windowId)).catch(() => null);
+  const win = await chrome.windows.create({
+    url: chrome.runtime.getURL(`collection.html#${key}`), type: 'popup', width: 380, height: 470, focused: true,
+    ...backdrawMenus.centreOver(over, 380, 470),
+  });
   entry.windowId = win.id;
   if (source.srcUrl.length < 1000000) await chrome.storage.session.set({ [`pending:${key}`]: { source, at: entry.at, windowId: win.id } }).catch(() => {});
 }

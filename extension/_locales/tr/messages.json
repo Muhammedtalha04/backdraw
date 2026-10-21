@@ -1,5 +1,3 @@
 {
-  "menuAdd": { "message": "Backdraw'a ekle", "description": "Right-click menu on an image: parent item of the collections." },
-  "menuNew": { "message": "Yeni koleksiyon…", "description": "Right-click submenu: opens a window to name a new collection." },
-  "menuOffline": { "message": "Backdraw bağlı değil", "description": "Disabled right-click submenu item while the local host is not running." }
+  "extDescription": { "message": "Claude'un, oturum açtığın kendi ChatGPT hesabınla arka planda bir sekmede görsel üretmesini sağlar. Tamamen bilgisayarında çalışır.", "description": "Extension description (manifest). Every other text is in i18n.js." }
 }

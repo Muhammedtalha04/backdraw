@@ -105,7 +105,8 @@ function onExtensionMessage(msg) {
     case 'hello':
       extension = { version: msg.version || '?', connectedAt: now() };
       log('info', `extension connected (v${extension.version})`);
-      toExtension({ type: 'welcome', hostVersion: VERSION, project: config.project, collections: collectionSummaries() });
+      // home: the extension shows paths with the home folder (it holds the user's name) as "~".
+      toExtension({ type: 'welcome', hostVersion: VERSION, project: config.project, collections: collectionSummaries(), home: os.homedir() });
       pump();
       break;
     case 'progress': onProgress(msg); break;

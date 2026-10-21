@@ -60,7 +60,8 @@ test('menu ids: every add item parses back to its collection name', () => {
 });
 
 test('i18n: English by default, Turkish on request, English for missing keys, placeholders filled', () => {
-  assert.equal(i18n.lang(), 'en'); // no chrome.* in Node
+  assert.equal(i18n.setPreference('en'), 'en'); // Node has navigator.language too: don't depend on this machine's
+  assert.equal(i18n.lang(), 'en');
   assert.equal(i18n.t('collections'), 'Collections');
   assert.equal(i18n.translate('tr', 'collections'), 'Koleksiyonlar');
   assert.equal(i18n.translate('tr', 'toastAdded', { name: 'Kediler', images: '3 görsel' }), 'Kediler koleksiyonuna eklendi · 3 görsel');
@@ -82,7 +83,7 @@ test('i18n: Turkish covers every English key and nothing else', () => {
 test('i18n: every key the extension uses exists', () => {
   const used = new Set();
   for (const f of ['popup.html', 'collection.html']) for (const [, key] of read(f).matchAll(/data-i18n(?:-\w+)?="([^"]+)"/g)) used.add(key);
-  for (const f of ['popup.js', 'collection.js', 'collections.js']) {
+  for (const f of ['popup.js', 'collection.js', 'collections.js', 'setup.js', 'background.js']) {
     for (const [, key] of read(f).matchAll(/\b(?:t|tr|userError)\('([A-Za-z]+)'/g)) used.add(key);
     for (const [, a, b] of read(f).matchAll(/\b(?:t|tr)\([^()']*\? '([A-Za-z]+)' : '([A-Za-z]+)'/g)) used.add(a).add(b);
   }
@@ -90,15 +91,20 @@ test('i18n: every key the extension uses exists', () => {
   for (const key of used) assert.ok(key in i18n.STRINGS.en, key);
 });
 
-test('_locales: the menu titles in English and Turkish', () => {
-  const en = JSON.parse(read(path.join('_locales', 'en', 'messages.json')));
-  const tr = JSON.parse(read(path.join('_locales', 'tr', 'messages.json')));
-  assert.deepEqual(Object.keys(tr).sort(), Object.keys(en).sort());
+test('menu titles come from i18n.js (the language override applies); _locales only holds the manifest description', () => {
   for (const key of ['menuAdd', 'menuNew', 'menuOffline']) {
-    assert.ok(en[key] && en[key].message && tr[key].message, key);
+    assert.ok(i18n.STRINGS.en[key] && i18n.STRINGS.tr[key], key);
     assert.ok(read('menus.js').includes(`'${key}'`), key);
   }
-  assert.equal(en.menuAdd.message, 'Add to Backdraw');
+  assert.equal(i18n.translate('en', 'menuAdd'), 'Add to Backdraw');
+  assert.equal(i18n.translate('tr', 'menuAdd'), 'Backdraw\'a ekle');
+  assert.match(read('collections.js'), /backdrawMenus\.menuItems\([^\n]*key => i18n\.t\(key\)\)/);
+  assert.doesNotMatch(read('collections.js') + read('background.js'), /chrome\.i18n\.getMessage/);
+  const en = JSON.parse(read(path.join('_locales', 'en', 'messages.json')));
+  const tr = JSON.parse(read(path.join('_locales', 'tr', 'messages.json')));
+  assert.deepEqual(Object.keys(en), ['extDescription']);
+  assert.deepEqual(Object.keys(tr), ['extDescription']);
+  assert.equal(JSON.parse(read('manifest.json')).description, '__MSG_extDescription__');
 });
 
 test('manifest: right-click menu, every site for images and the toast, English default locale', () => {

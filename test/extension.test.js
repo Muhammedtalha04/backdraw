@@ -59,7 +59,7 @@ function loadWorker() {
       windows: { onRemoved: event() },
       tabs: { onRemoved: event() },
       action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {} },
-      storage: { session: { get: async () => ({}), set: async () => {}, remove: async () => {} } },
+      storage: { session: { get: async () => ({}), set: async () => {}, remove: async () => {} }, local: { get: async () => ({}), set: async () => {} }, onChanged: event() },
     },
     OffscreenCanvas: fakeCanvasClass(made),
     nextBitmap: null,

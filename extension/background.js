@@ -90,6 +90,7 @@ async function onHostMessage(msg) {
       lastError = null;
       reconnectDelay = 2000;
       project = msg.project || null;
+      hostHome = msg.home || null;
       setBadge();
       collectionsOnline(msg.collections);
       break;
@@ -212,6 +213,7 @@ async function pageCall(tabId, fn, ...args) {
   });
   const value = res ? res.result : undefined;
   if (value && value.__error) throw new Error(`page.${fn}: ${value.__error}`);
+  if (fn === 'probe') noteChatgpt(value);
   return value;
 }
 
@@ -876,6 +878,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     reply({
       version: VERSION, connected: hostReady, lastError, project, recent,
       current: current ? { id: current.job.id, step: current.step, message: current.message } : null,
+      chatgpt: { ...chatgptState, checking: !!chatgptCheck }, home: hostHome,
     });
   } else if (msg.type === 'popup:select') {
     if (!hostReady) { reply({ ok: false, error: i18n.t('errNotConnected') }); return; }
@@ -884,6 +887,83 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     reply({ ok: true });
   }
 });
+
+// ---------------------------------------------------------------- setup checklist (popup)
+
+// Whether ChatGPT is signed in, as the last look at a chatgpt.com page showed it: every probe of a
+// job or a project list updates it, and the popup can ask for a fresh look. Only the page is looked
+// at (login wall, verification page, message box); never cookies, tokens or the session endpoint.
+// Kept in chrome.storage.local, so the popup still knows it after a browser restart.
+let chatgptState = { loggedIn: null, challenge: null, checkedAt: null };
+let chatgptCheck = null;
+let hostHome = null; // the user's home folder (from the host): the extension's pages show it as "~"
+
+function noteChatgpt(st) {
+  if (!st || !(st.login || st.challenge || st.composer)) return; // still loading
+  const next = st.challenge ? { loggedIn: chatgptState.loggedIn, challenge: st.challenge } : { loggedIn: !st.login, challenge: null };
+  const changed = next.loggedIn !== chatgptState.loggedIn || next.challenge !== chatgptState.challenge;
+  chatgptState = { ...next, checkedAt: Date.now() };
+  if (changed) chrome.storage.local.set({ chatgptState }).catch(() => {});
+}
+
+// Opens chatgpt.com in a background tab until it shows a login wall, a verification page or the
+// message box, then closes it. "Signed in" waits a moment: the "Log in" button can come after the box.
+function checkChatgpt() {
+  if (!chatgptCheck) {
+    chatgptCheck = withHelperTab(HOME, async tabId => {
+      const until = Date.now() + 45000;
+      let composerSince = 0;
+      await sleep(1500);
+      while (Date.now() < until) {
+        const st = await pageCall(tabId, 'probe', null).catch(() => null);
+        if (st && (st.login || st.challenge)) return chatgptState;
+        composerSince = st && st.composer ? composerSince || Date.now() : 0;
+        if (composerSince && Date.now() - composerSince >= 2500) return chatgptState;
+        await sleep(1000);
+      }
+      throw new Error(i18n.t('errChatgptCheck'));
+    }).finally(() => { chatgptCheck = null; });
+  }
+  return chatgptCheck;
+}
+
+// The popup shows these in its own language; anything else as it is.
+function setupError(e, fallbackKey) {
+  if (e && e.reason === 'needs_human') return i18n.t(chatgptState.challenge ? 'chatgptChallenge' : 'chatgptOut');
+  if (e && e.reason === 'not_found' && fallbackKey) return i18n.t(fallbackKey);
+  return String((e && e.message) || e);
+}
+
+const setupRequests = new Map([
+  ['popup:check-chatgpt', async () => ({ chatgpt: await checkChatgpt() })],
+  ['popup:projects', async () => {
+    try { return { projects: await listProjects() }; } catch (e) { if (e.reason === 'not_found') return { projects: [] }; throw e; }
+  }],
+  // A project row without a link: open it once to read the link (popup:select then saves it).
+  ['popup:resolve-project', async msg => {
+    try { return { project: await resolveProject(String(msg.name || '')) }; } catch (e) { throw new Error(setupError(e, 'selectFailed')); }
+  }],
+  // "Try again" after running install.js: connect now instead of after the back-off.
+  ['popup:reconnect', async () => {
+    if (!hostReady) {
+      reconnectDelay = 2000;
+      connect();
+      for (let i = 0; i < 20 && port && !hostReady; i++) await sleep(150);
+    }
+    return { connected: hostReady, lastError };
+  }],
+]);
+
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  const handler = msg && setupRequests.get(msg.type);
+  if (!handler || sender.id !== chrome.runtime.id || !String(sender.url || '').startsWith(chrome.runtime.getURL(''))) return;
+  handler(msg).then(r => reply({ ok: true, ...r }), e => reply({ ok: false, error: setupError(e) }));
+  return true;
+});
+
+chrome.storage.local.get('chatgptState').then(r => {
+  if (r.chatgptState && !chatgptState.checkedAt) chatgptState = { ...chatgptState, ...r.chatgptState };
+}).catch(() => {});
 
 // ---------------------------------------------------------------- start
 

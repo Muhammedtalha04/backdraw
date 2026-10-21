@@ -58,4 +58,5 @@ $('form').addEventListener('submit', async ev => {
 
 $('cancel').addEventListener('click', cancel);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') cancel(); });
-load();
+i18n.watch(() => i18n.apply());
+backdrawSettings.ready.then(load); // in the language picked in the popup

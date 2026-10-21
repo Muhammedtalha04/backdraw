@@ -1,6 +1,7 @@
-// UI texts of the extension pages, the in-page note and the service worker, by key: English, and
-// Turkish when Chrome's UI language is Turkish. A key without a Turkish text falls back to English.
-// The right-click menu titles are in _locales/ instead, so Chrome can show them by itself.
+// UI texts of the extension pages, the in-page note, the right-click menu and the service worker, by
+// key: English or Turkish, as picked in the popup (chrome.storage.local "language": 'auto' | 'en' |
+// 'tr'; 'auto' follows the browser's language). A key without a Turkish text falls back to English,
+// then to the key itself. _locales/ only holds the manifest's description.
 (() => {
   const STRINGS = {
     en: {
@@ -50,6 +51,71 @@
       errNoSource: 'Chrome did not pass on this image\'s address (it does not for very large embedded images), so it cannot be added.',
       errExpired: 'This window has expired; right-click the image again.',
       errTimeout: 'Backdraw did not answer in time.',
+      menuAdd: 'Add to Backdraw',
+      menuNew: 'New collection…',
+      menuOffline: 'Backdraw is not connected',
+      settings: 'Settings',
+      language: 'Language',
+      theme: 'Theme',
+      optAuto: 'Auto',
+      langEnglish: 'English',
+      langTurkish: 'Türkçe',
+      themeLight: 'Light',
+      themeDark: 'Dark',
+      setupTitle: 'Set up Backdraw',
+      setupChecklist: 'Setup',
+      setupCount: '{done} of {total} done',
+      stepBridge: 'Local bridge connected',
+      bridgeOk: 'Chrome is talking to Backdraw on this computer.',
+      bridgeMissing: 'Chrome cannot reach the Backdraw bridge.',
+      chromeSays: 'Chrome says: {error}',
+      bridgeFix: 'Run this in the Backdraw folder, then reopen this popup:',
+      bridgeReload: 'If you just installed: chrome://extensions → Backdraw → Reload.',
+      retry: 'Try again',
+      copy: 'Copy',
+      copied: 'Copied',
+      stepChatgpt: 'Signed in to ChatGPT',
+      chatgptIn: 'ChatGPT is signed in in Chrome.',
+      chatgptOut: 'ChatGPT is not signed in in Chrome.',
+      chatgptChallenge: 'ChatGPT is showing a human verification page. Open ChatGPT and complete it.',
+      chatgptUnknown: 'Not checked yet. The check opens chatgpt.com in a background tab for a moment.',
+      chatgptChecking: 'Checking in a background tab…',
+      openChatgptSignIn: 'Open ChatGPT to sign in',
+      openChatgpt: 'Open ChatGPT',
+      checkNow: 'Check now',
+      checkAgain: 'Check again',
+      errChatgptCheck: 'ChatGPT did not finish loading; try again.',
+      stepProject: 'Project selected',
+      projectUsing: 'Images go to the “{name}” project.',
+      projectGuide: 'In ChatGPT, create a Project for your images (e.g. "Backdraw") and open it. Then click the Backdraw icon again: a "Use the … project" button appears here.',
+      projectNeedsBridge: 'Needs the bridge (step 1) first.',
+      chooseProject: 'Choose from my projects',
+      loadingProjects: 'Reading your projects in a background tab…',
+      noProjects: 'No projects were found in ChatGPT.',
+      stepReady: 'Ready',
+      readyIntro: 'Ask Claude, for example:',
+      examplePrompt: 'Generate an image with ChatGPT: a cozy reading nook, 16:9',
+      readyCollections: 'Collect references: right-click any image → "Add to Backdraw".',
+      readyWaiting: 'Finish the steps above first.',
+      gotIt: 'Done',
+      chatgpt: 'ChatGPT',
+      signedIn: 'Signed in',
+      signedOut: 'Not signed in',
+      notChecked: 'Not checked',
+      verification: 'Verification needed',
+      openGallery: 'Open gallery',
+      jobPercent: '{step} ({pct}%)',
+      jobStarting: 'Starting',
+      jobOpening: 'Opening ChatGPT',
+      jobAttaching: 'Attaching the reference images',
+      jobTyping: 'Writing the prompt',
+      jobSending: 'Sending the prompt',
+      jobGenerating: 'ChatGPT is generating the image',
+      jobReattaching: 'Attaching the image again',
+      jobVerifying: 'Checking the final version',
+      jobDownloading: 'Downloading the image',
+      jobNeedsHuman: 'Waiting for you in the ChatGPT tab (sign-in or verification)',
+      jobResuming: 'Continuing',
     },
     tr: {
       bridge: 'Köprü',
@@ -98,11 +164,119 @@
       errNoSource: 'Chrome bu görselin adresini iletmedi (çok büyük gömülü görsellerde iletmiyor), bu yüzden eklenemiyor.',
       errExpired: 'Bu pencerenin süresi doldu; görsele yeniden sağ tıkla.',
       errTimeout: 'Backdraw zamanında yanıt vermedi.',
+      menuAdd: 'Backdraw\'a ekle',
+      menuNew: 'Yeni koleksiyon…',
+      menuOffline: 'Backdraw bağlı değil',
+      settings: 'Ayarlar',
+      language: 'Dil',
+      theme: 'Tema',
+      optAuto: 'Otomatik',
+      langEnglish: 'English',
+      langTurkish: 'Türkçe',
+      themeLight: 'Açık',
+      themeDark: 'Koyu',
+      setupTitle: 'Backdraw kurulumu',
+      setupChecklist: 'Kurulum',
+      setupCount: '{done}/{total} tamam',
+      stepBridge: 'Yerel köprü bağlı',
+      bridgeOk: 'Chrome bu bilgisayardaki Backdraw ile konuşuyor.',
+      bridgeMissing: 'Chrome, Backdraw köprüsüne ulaşamıyor.',
+      chromeSays: 'Chrome\'un mesajı: {error}',
+      bridgeFix: 'Backdraw klasöründe bunu çalıştır, sonra bu pencereyi yeniden aç:',
+      bridgeReload: 'Yeni kurduysan: chrome://extensions → Backdraw → Yeniden yükle.',
+      retry: 'Tekrar dene',
+      copy: 'Kopyala',
+      copied: 'Kopyalandı',
+      stepChatgpt: 'ChatGPT oturumu açık',
+      chatgptIn: 'Chrome\'da ChatGPT oturumu açık.',
+      chatgptOut: 'Chrome\'da ChatGPT oturumu açık değil.',
+      chatgptChallenge: 'ChatGPT bir insan doğrulaması gösteriyor. ChatGPT\'yi açıp doğrulamayı tamamla.',
+      chatgptUnknown: 'Henüz kontrol edilmedi. Kontrol, chatgpt.com\'u kısa bir süre arka planda bir sekmede açar.',
+      chatgptChecking: 'Arka planda bir sekmede kontrol ediliyor…',
+      openChatgptSignIn: 'Oturum açmak için ChatGPT\'yi aç',
+      openChatgpt: 'ChatGPT\'yi aç',
+      checkNow: 'Şimdi kontrol et',
+      checkAgain: 'Tekrar kontrol et',
+      errChatgptCheck: 'ChatGPT yüklenmeyi bitirmedi; tekrar dene.',
+      stepProject: 'Proje seçili',
+      projectUsing: 'Görseller “{name}” projesine gidiyor.',
+      projectGuide: 'ChatGPT\'de görsellerin için bir Proje oluştur (ör. "Backdraw") ve onu aç. Sonra Backdraw simgesine yeniden tıkla: burada "… projesini kullan" düğmesi çıkar.',
+      projectNeedsBridge: 'Önce köprü gerekli (1. adım).',
+      chooseProject: 'Projelerimden seç',
+      loadingProjects: 'Projelerin arka planda bir sekmede okunuyor…',
+      noProjects: 'ChatGPT\'de proje bulunamadı.',
+      stepReady: 'Hazır',
+      readyIntro: 'Claude\'a örneğin şunu yaz:',
+      examplePrompt: 'ChatGPT ile bir görsel üret: sıcacık bir okuma köşesi, 16:9',
+      readyCollections: 'Referans topla: herhangi bir görsele sağ tıkla → "Backdraw\'a ekle".',
+      readyWaiting: 'Önce yukarıdaki adımları bitir.',
+      gotIt: 'Tamam',
+      chatgpt: 'ChatGPT',
+      signedIn: 'Oturum açık',
+      signedOut: 'Oturum kapalı',
+      notChecked: 'Kontrol edilmedi',
+      verification: 'Doğrulama gerekli',
+      openGallery: 'Galeriyi aç',
+      jobPercent: '{step} (%{pct})',
+      jobStarting: 'Başlıyor',
+      jobOpening: 'ChatGPT açılıyor',
+      jobAttaching: 'Referans görseller ekleniyor',
+      jobTyping: 'İstem yazılıyor',
+      jobSending: 'İstem gönderiliyor',
+      jobGenerating: 'ChatGPT görseli üretiyor',
+      jobReattaching: 'Görsel yeniden ekleniyor',
+      jobVerifying: 'Son hâli kontrol ediliyor',
+      jobDownloading: 'Görsel indiriliyor',
+      jobNeedsHuman: 'ChatGPT sekmesinde seni bekliyor (oturum açma ya da doğrulama)',
+      jobResuming: 'Devam ediyor',
     },
   };
 
-  function lang() {
-    try { return /^tr\b/i.test(chrome.i18n.getUILanguage()) ? 'tr' : 'en'; } catch { return 'en'; }
+  const PREFERENCES = ['auto', 'en', 'tr'];
+  const LANGUAGE_KEY = 'language'; // in chrome.storage.local
+  let preference = 'auto';
+
+  // The language a preference means; 'auto' takes Turkish for a Turkish browser, else English.
+  function resolve(pref, uiLanguage) {
+    if (pref === 'en' || pref === 'tr') return pref;
+    return /^tr\b/i.test(String(uiLanguage || '')) ? 'tr' : 'en';
+  }
+
+  function uiLanguage() {
+    try { return navigator.language; } catch { return ''; }
+  }
+
+  const lang = () => resolve(preference, uiLanguage());
+
+  function setPreference(pref) {
+    preference = PREFERENCES.includes(pref) ? pref : 'auto';
+    return lang();
+  }
+
+  // Reads the user's choice; pages and the worker call it once before they show texts.
+  async function load() {
+    try { setPreference((await chrome.storage.local.get(LANGUAGE_KEY))[LANGUAGE_KEY]); } catch {}
+    return lang();
+  }
+
+  // onChange(lang) runs whenever the choice changes (in the popup, maybe in another window).
+  function watch(onChange) {
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local' || !changes[LANGUAGE_KEY]) return;
+        setPreference(changes[LANGUAGE_KEY].newValue);
+        onChange(lang());
+      });
+    } catch {}
+  }
+
+  // A path or message as the extension shows it: the user's home folder (it holds their name) becomes
+  // "~". home comes from the host; without it, user folders are recognised by their usual shape.
+  function shortPath(text, home) {
+    const s = String(text ?? '');
+    const h = String(home || '').replace(/[\\/]+$/, '');
+    if (h) return s.replace(new RegExp(`${h.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&')}(?!\\w)`, 'gi'), '~');
+    return s.replace(/(^|[\s"'(])[A-Za-z]:\\Users\\[^\\/"'\r\n]+/g, '$1~').replace(/(^|[\s"'(])\/(?:Users|home)\/[^/\s"']+/g, '$1~');
   }
 
   // {name} placeholders are filled from vars; an unknown key shows as itself.
@@ -121,7 +295,7 @@
     for (const el of root.querySelectorAll('[data-i18n-placeholder]')) el.placeholder = t(el.dataset.i18nPlaceholder);
   }
 
-  const api = { STRINGS, lang, translate, t, images, apply };
+  const api = { STRINGS, PREFERENCES, LANGUAGE_KEY, lang, resolve, setPreference, load, watch, translate, t, images, apply, shortPath };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else globalThis.i18n = api;
 })();

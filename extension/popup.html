@@ -3,78 +3,61 @@
 <head>
   <meta charset="utf-8">
   <title>Backdraw</title>
-  <style>
-    :root {
-      --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea;
-      --ok: #1a7f37; --bad: #c62828; --accent: #7c3aed; --accent-fg: #ffffff;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root { --bg: #1c1c1e; --fg: #f2f2f7; --muted: #a1a1a6; --line: #38383a; --ok: #3fb950; --bad: #ff6b6b; }
-    }
-    body { margin: 0; width: 300px; background: var(--bg); color: var(--fg); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
-    header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); font-weight: 600; }
-    header img { width: 20px; height: 20px; }
-    dl { margin: 0; padding: 10px 14px; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
-    dt { color: var(--muted); }
-    dd { margin: 0; overflow-wrap: anywhere; }
-    .ok { color: var(--ok); font-weight: 600; }
-    .bad { color: var(--bad); font-weight: 600; }
-    #hint { padding: 0 14px 10px; color: var(--muted); font-size: 12px; }
-    #hint:empty { display: none; }
-    button { margin: 0 14px 12px; width: calc(100% - 28px); padding: 8px 10px; border: 0; border-radius: 8px;
-      background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 600; cursor: pointer; }
-    button[hidden] { display: none; }
-    footer { padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
-    #collections { padding: 10px 14px 12px; border-top: 1px solid var(--line); }
-    #collections h2 { margin: 0 0 6px; font-size: 13px; }
-    #collections button { margin: 0; width: auto; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px;
-      background: transparent; color: var(--fg); font-weight: 400; }
-    #collections button.danger { border-color: var(--bad); color: var(--bad); }
-    #colList { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
-    #colList button { display: flex; justify-content: space-between; gap: 8px; width: 100%; text-align: left; }
-    #colList .count, #colPath { color: var(--muted); }
-    #colHead { display: flex; align-items: center; gap: 8px; }
-    #colName { flex: 1; font-weight: 600; overflow-wrap: anywhere; }
-    #colPath { margin: 2px 0 6px; font-size: 11px; overflow-wrap: anywhere; }
-    .actions, #colEdit { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
-    #colEdit p { margin: 0; width: 100%; }
-    #colEdit input { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
-    #colGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; max-height: 300px; overflow-y: auto; }
-    .tile { position: relative; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-    .tile img { width: 100%; height: 100%; object-fit: cover; }
-    .tile .noimg { padding: 4px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
-    #collections .tile button { position: absolute; top: 3px; right: 3px; padding: 0 6px; border: 0; border-radius: 10px;
-      background: rgba(0, 0, 0, .55); color: #fff; line-height: 18px; }
-    #collections .tile button.armed { background: var(--bad); }
-    #colMsg { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
-    #colMsg:empty { display: none; }
-    #colMsg.bad { color: var(--bad); font-weight: 600; }
-    [hidden] { display: none !important; }
-  </style>
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="popup.css">
+  <script src="i18n.js"></script>
+  <script src="settings.js"></script>
 </head>
 <body>
-  <header><img src="icons/icon32.png" alt="">Backdraw</header>
-  <dl>
-    <dt data-i18n="bridge">Bridge</dt><dd id="conn">…</dd>
-    <dt data-i18n="project">Project</dt><dd id="project">…</dd>
-    <dt data-i18n="job">Job</dt><dd id="job">…</dd>
-  </dl>
-  <div id="hint"></div>
-  <button id="pick" hidden></button>
-  <section id="collections">
+  <header>
+    <img class="mascot" src="icons/mascot-96.png" srcset="icons/mascot-96.png 1x, icons/mascot-192.png 2x" width="36" height="36" alt="">
+    <div class="brand"><b>Backdraw</b><small><span data-i18n="version">Version</span> <span id="ver">?</span></small></div>
+    <button id="settingsBtn" class="icon" aria-expanded="false" aria-controls="settings" data-i18n-title="settings">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 6h9M19 6h1M4 12h3M13 12h7M4 18h11M21 18h-1"/><circle cx="16" cy="6" r="2.2"/><circle cx="10" cy="12" r="2.2"/><circle cx="18" cy="18" r="2.2"/>
+      </svg>
+    </button>
+  </header>
+  <section id="settings" class="settings" hidden>
+    <label><span data-i18n="language">Language</span>
+      <select id="language">
+        <option value="auto" data-i18n="optAuto">Auto</option><option value="en" data-i18n="langEnglish">English</option><option value="tr" data-i18n="langTurkish">Türkçe</option>
+      </select>
+    </label>
+    <label><span data-i18n="theme">Theme</span>
+      <select id="theme">
+        <option value="auto" data-i18n="optAuto">Auto</option><option value="light" data-i18n="themeLight">Light</option><option value="dark" data-i18n="themeDark">Dark</option>
+      </select>
+    </label>
+  </section>
+  <section id="wizard" hidden>
+    <h2><span data-i18n="setupTitle">Set up Backdraw</span><small id="setupCount"></small></h2>
+    <ol id="steps" class="steps"></ol>
+  </section>
+  <section id="overview" hidden>
+    <dl class="rows">
+      <dt data-i18n="bridge">Bridge</dt><dd id="conn">…</dd>
+      <dt data-i18n="chatgpt">ChatGPT</dt><dd id="chat">…</dd>
+      <dt data-i18n="project">Project</dt><dd id="project">…</dd>
+      <dt data-i18n="job">Job</dt><dd id="job">…</dd>
+    </dl>
+    <button id="pick" class="btn primary" hidden></button>
+    <details id="checklist"><summary data-i18n="setupChecklist">Setup</summary><ol id="doneSteps" class="steps"></ol></details>
+  </section>
+  <section id="collections" hidden>
     <h2 data-i18n="collections">Collections</h2>
     <div id="colList"></div>
     <div id="colDetail" hidden>
-      <div id="colHead"><button id="colBack" data-i18n="back">‹ Back</button><span id="colName"></span></div>
+      <div id="colHead"><button id="colBack" class="btn" data-i18n="back">‹ Back</button><span id="colName"></span></div>
       <div id="colPath"></div>
-      <div class="actions"><button id="colRename" data-i18n="rename">Rename</button><button id="colDelete" class="danger" data-i18n="deleteCollection">Delete collection</button></div>
+      <div class="actions"><button id="colRename" class="btn" data-i18n="rename">Rename</button><button id="colDelete" class="btn danger" data-i18n="deleteCollection">Delete collection</button></div>
       <div id="colEdit" hidden></div>
       <div id="colGrid"></div>
     </div>
     <p id="colMsg"></p>
   </section>
-  <footer><span data-i18n="version">Version</span> <span id="ver">?</span> · <span data-i18n="footerNote">Images are made in a background tab; your active tab does not change.</span></footer>
-  <script src="i18n.js"></script>
+  <footer><span data-i18n="footerNote">Images are made in a background tab; your active tab does not change.</span><button id="gallery" class="link" hidden data-i18n="openGallery">Open gallery</button></footer>
+  <script src="setup.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

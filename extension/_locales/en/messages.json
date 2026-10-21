@@ -1,5 +1,3 @@
 {
-  "menuAdd": { "message": "Add to Backdraw", "description": "Right-click menu on an image: parent item of the collections." },
-  "menuNew": { "message": "New collection…", "description": "Right-click submenu: opens a window to name a new collection." },
-  "menuOffline": { "message": "Backdraw is not connected", "description": "Disabled right-click submenu item while the local host is not running." }
+  "extDescription": { "message": "Lets Claude generate images with your own signed-in ChatGPT account in a background tab. Runs entirely on your computer.", "description": "Extension description (manifest). Every other text is in i18n.js." }
 }

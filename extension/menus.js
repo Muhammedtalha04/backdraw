@@ -1,5 +1,5 @@
-// The right-click menu on images: its items for a collection list, and what a clicked item id means.
-// No chrome.* calls here, so the tests can load it too.
+// The right-click menu on images: its items for a collection list, what a clicked item id means, and
+// where the "New collection…" window goes. No chrome.* calls here, so the tests can load it too.
 (() => {
   const ROOT = 'backdraw';
   const ADD = 'backdraw:add:'; // + the collection name, as the host lists it
@@ -29,7 +29,15 @@
     return null;
   }
 
-  const api = { menuItems, parseMenuId };
+  // left/top that put a width x height window in the middle of win (a chrome.windows.Window); nothing
+  // when win is unknown, so Chrome picks the place. Not clamped: a screen left of the main one has
+  // negative coordinates.
+  function centreOver(win, width, height) {
+    if (!win || ![win.left, win.top, win.width, win.height].every(Number.isFinite)) return {};
+    return { left: Math.round(win.left + (win.width - width) / 2), top: Math.round(win.top + (win.height - height) / 2) };
+  }
+
+  const api = { menuItems, parseMenuId, centreOver };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else globalThis.backdrawMenus = api;
 })();
