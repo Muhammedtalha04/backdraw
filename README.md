@@ -64,7 +64,7 @@ Images are saved in your Pictures folder under `Backdraw`, named after the time 
 | OS | Windows 10 or 11 |
 | Browser | Google Chrome 116 or newer |
 | Runtime | Node.js 20 or newer |
-| Account | A ChatGPT account that can generate images, signed in in Chrome |
+| Account | A ChatGPT account that can generate images, signed in to chatgpt.com in Chrome |
 | Client | Claude Code or the Claude desktop app (or another MCP client that runs stdio servers) |
 
 Windows only for now — the code is split into a platform module and macOS/Linux contributions are
