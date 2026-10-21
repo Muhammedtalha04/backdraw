@@ -15,7 +15,7 @@ const platform = require('./platform');
 
 const { LEGACY } = identity;
 const SRC = __dirname;
-const FILES = ['package.json', 'LICENSE', 'identity.js', 'shared.js', 'host.js', 'mcp-server.js', 'cli.js', 'install.js', 'README.md', 'extension', 'platform', 'lib'];
+const FILES = ['package.json', 'LICENSE', 'identity.js', 'shared.js', 'host.js', 'mcp-server.js', 'cli.js', 'install.js', 'README.md', 'README.tr.md', 'SECURITY.md', 'CHANGELOG.md', 'extension', 'platform', 'lib'];
 const NODE = process.execPath;
 const MCP_NAMES = [identity.MCP_NAME, LEGACY.MCP_NAME];
 

@@ -3,7 +3,7 @@
 // mouse or keyboard, never focuses a window and never reads cookies or tokens.
 // Re-injected before every call, so it always redefines itself (no stale copies after updates).
 (() => {
-  const VERSION = '1.1.0';
+  const VERSION = '2.0.0';
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const squash = s => String(s || '').replace(/\s+/g, ' ').trim();
