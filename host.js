@@ -61,6 +61,7 @@ function loadConfig() {
     outputDir: c.outputDir || path.join(os.homedir(), 'Pictures', identity.IMAGES_DIR_NAME),
     collectionsDir: c.collectionsDir || path.join(os.homedir(), 'Pictures', identity.IMAGES_DIR_NAME, identity.COLLECTIONS_DIR_NAME),
     debug: !!c.debug,
+    imagesCentralized: !!c.imagesCentralized,
   };
 }
 
@@ -378,8 +379,10 @@ function imagesFromChat(job) {
 }
 
 // v1.0 saved images straight into the caller's output_dir only. Keep a copy of every image in the
-// central folder too, and point the job there (callers may rename or move their own copies).
+// central folder too, and point the job there (callers may rename or move their own copies). This
+// runs once: changing the images folder later must not copy the whole history into the new one.
 function centralizeLegacyImages() {
+  if (config.imagesCentralized) return;
   const central = path.resolve(config.outputDir).toLowerCase();
   let changed = false;
   for (const j of jobs) {
@@ -411,6 +414,8 @@ function centralizeLegacyImages() {
     }
   }
   if (changed) saveJobs();
+  config.imagesCentralized = true;
+  try { saveConfig(); } catch (e) { log('warn', 'saving the config failed', String(e)); }
 }
 
 function cleanupPreviews() {

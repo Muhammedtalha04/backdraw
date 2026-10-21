@@ -109,6 +109,11 @@ test('the host', async t => {
   toHost({ type: 'hello', version: 'test' });
   assert.equal((await nextFromHost('welcome')).project.url, PROJECT.url);
 
+  await t.test('older images are moved into the images folder once, then never again', () => {
+    // Changing the images folder later must not copy the whole history into the new folder.
+    assert.equal(JSON.parse(fs.readFileSync(path.join(DIR, 'data', 'config.json'), 'utf8')).imagesCentralized, true);
+  });
+
   await t.test('a bad aspect_ratio is refused before a job exists', async () => {
     await assert.rejects(call('generate', { prompt: 'x', aspect: '9:1' }), { code: 'BAD_REQUEST', message: /aspect_ratio 9:1 is outside the supported range 1:4 to 4:1/ });
     await assert.rejects(call('generate', { prompt: 'x', aspect: '1.5:1' }), { code: 'BAD_REQUEST', message: /use 3:2 instead/ });

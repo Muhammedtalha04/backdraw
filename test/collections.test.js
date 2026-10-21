@@ -41,6 +41,9 @@ test('safeFolderName: device names get a suffix, also with an extension', () => 
   assert.equal(c.safeFolderName('lpt9'), 'lpt9_');
   assert.equal(c.safeFolderName('con.txt'), 'con_.txt');
   assert.equal(c.safeFolderName('AUX .png'), 'AUX_ .png');
+  assert.equal(c.safeFolderName('CONIN$'), 'CONIN$_');
+  assert.equal(c.safeFolderName('conout$'), 'conout$_');
+  assert.equal(c.safeFolderName('Clock$.x'), 'Clock$_.x');
   assert.equal(c.safeFolderName('Console'), 'Console');
   assert.equal(c.safeFolderName('COM10'), 'COM10');
   assert.equal(c.safeFolderName('Prints'), 'Prints');
@@ -84,7 +87,7 @@ test('isInside: only paths strictly below the root', () => {
 
 test('isPlainFile: bare file names only', () => {
   for (const ok of ['001_cat.png', 'a.jpg', 'ünïcödé.webp']) assert.ok(c.isPlainFile(ok), ok);
-  for (const bad of ['', '.', '..', '../x.png', 'a/b.png', 'a\\b.png', 'C:x.png', 'x.png.', 'x ', 'a\u0000.png', 'x'.repeat(201), null, 5]) {
+  for (const bad of ['', '.', '..', '../x.png', 'a/b.png', 'a\\b.png', 'C:x.png', 'x.png.', 'x ', 'a\u0000.png', 'x'.repeat(201), 'CON.png', 'nul', 'conin$.jpg', null, 5]) {
     assert.ok(!c.isPlainFile(bad), String(bad));
   }
 });

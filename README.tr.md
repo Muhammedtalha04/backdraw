@@ -210,15 +210,17 @@ okur (alfa kanalı ya da `tRNS` bölümü) ve saydam piksellerin oranını ölç
 Transparent background: yes — PNG with an alpha channel, 61% of the pixels are transparent.
 ```
 
-ya da satır `⚠ TRANSPARENT BACKGROUND MISSING` ile başlar (alfa kanalı yok ya da her piksel opak).
+ya da satır `⚠ TRANSPARENT BACKGROUND MISSING` ile başlar (alfa kanalı yok ya da piksellerin en fazla %2'si saydam).
 Bu durumda yeni bir sohbette bir kez daha dene ya da arka planı başka bir araçla kaldır. Şeffaf
 görsellerin önizlemeleri dama tahtası deseni üzerinde çizilir.
 
 ## Galeri yan paneli
 
 Açılır pencerede **Galeriyi aç**'a tıkla; Backdraw'ın yan paneli bulunduğun sayfanın yanında açılır.
+Araç çubuğundaki Backdraw simgesine sağ tıklayıp **Backdraw galerisini aç**'ı da seçebilirsin.
 
-- **Üstte:** sürmekte olan iş (adım, mesaj ve geçen süre) ya da "Boşta".
+- **Üstte:** sürmekte olan iş (adım, iş numarası ve geçen süre; ChatGPT'nin mesajı için üzerine gel),
+  "Boşta" ya da bağlı değil uyarısı.
 - **Galeri:** ürettiğin görseller, en yenisi önce, 12'şer 12'şer (**Daha fazla yükle**). Her birinde
   küçük resim, tarih, istem (üzerine gelince ilk 300 karakteri görünür), boyut ve istendiyse en-boy
   oranı.
@@ -262,7 +264,7 @@ Bir sonuç şunları söyleyebilir:
 | `STILL RUNNING` / `QUEUED` | Henüz bitmedi; Claude iş numarasıyla `job_status`'u çağırmaya devam eder. |
 | `NEEDS USER ACTION` | ChatGPT bir giriş ya da insan doğrulaması sayfası gösteriyor (bkz. [Sorun giderme](#sorun-giderme)). |
 | `NEEDS REFERENCE IMAGE` | ChatGPT düzenlemesi gereken görsele erişemedi. Sonuç, o sohbetten daha önce kaydedilmiş görselleri listeler. |
-| `CHATGPT REPLIED WITHOUT AN IMAGE` | ChatGPT metinle cevap verdi (bir soru, bir ret, bir limit); metnin tamamı sonuçtadır. |
+| `CHATGPT REPLIED WITHOUT AN IMAGE` | ChatGPT metinle cevap verdi (bir soru, bir ret, bir limit); metnin ilk 3.000 karakteri sonuçtadır. |
 | `FAILED` / `CANCELLED` | Nedeniyle ve varsa sohbet bağlantısıyla birlikte. |
 
 ## Hızlı dönüş

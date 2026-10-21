@@ -205,15 +205,17 @@ either
 Transparent background: yes — PNG with an alpha channel, 61% of the pixels are transparent.
 ```
 
-or starts with `⚠ TRANSPARENT BACKGROUND MISSING` (no alpha channel, or every pixel is opaque). Then
+or starts with `⚠ TRANSPARENT BACKGROUND MISSING` (no alpha channel, or 2% or fewer of the pixels are transparent). Then
 retry once in a fresh chat or remove the background with another tool. Previews of transparent
 images are drawn over a checkerboard.
 
 ## Gallery side panel
 
-Click **Open gallery** in the popup to open Backdraw's side panel next to the page you are on.
+Click **Open gallery** in the popup to open Backdraw's side panel next to the page you are on. You
+can also right-click the Backdraw toolbar icon → **Open Backdraw gallery**.
 
-- **Top:** the job in progress (step, message and elapsed time) or "Idle".
+- **Top:** the job in progress (step, job id and elapsed time; hover for ChatGPT's message), "Idle",
+  or a not-connected notice.
 - **Gallery:** your generated images, newest first, 12 at a time (**Load more**), each with a
   thumbnail, the date, the prompt (hover to see its first 300 characters), the size and, if one was
   asked, the aspect ratio.
@@ -256,7 +258,7 @@ What a result can say:
 | `STILL RUNNING` / `QUEUED` | Not done yet; Claude keeps calling `job_status` with the job id. |
 | `NEEDS USER ACTION` | ChatGPT shows a login or human-verification page (see [Troubleshooting](#troubleshooting)). |
 | `NEEDS REFERENCE IMAGE` | ChatGPT couldn't reach the image it should edit. The result lists images already saved from that chat. |
-| `CHATGPT REPLIED WITHOUT AN IMAGE` | ChatGPT answered in text (a question, a refusal, a limit); the full text is included. |
+| `CHATGPT REPLIED WITHOUT AN IMAGE` | ChatGPT answered in text (a question, a refusal, a limit); up to 3,000 characters of it are included. |
 | `FAILED` / `CANCELLED` | With the reason, and the chat link if there is one. |
 
 ## Fast return

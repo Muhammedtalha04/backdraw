@@ -85,6 +85,18 @@ test('pieces of a call that never comes are forgotten after a while', () => {
   assert.equal(calls.take('old'), null);
 });
 
+test('only a few calls collect data at once; one more is spoiled until a slot frees', () => {
+  const calls = callAssembler(100, 1000, Date.now, 2);
+  calls.chunk({ reqId: 'a', seq: 0, total: 2, data: 'ab' });
+  calls.chunk({ reqId: 'b', seq: 0, total: 2, data: 'cd' });
+  calls.chunk({ reqId: 'c', seq: 0, total: 1, data: 'ef' });
+  calls.chunk({ reqId: 'a', seq: 1, total: 2, data: 'gh' });
+  assert.equal(calls.take('c').bad, true);
+  assert.deepEqual(calls.take('a').parts, ['ab', 'gh']);
+  calls.chunk({ reqId: 'd', seq: 0, total: 1, data: 'ij' });
+  assert.equal(calls.take('d').bad, false);
+});
+
 test('a reply over 1 MB is replaced by an error (Chrome would drop it)', async () => {
   const handlers = { collection_thumbs: () => ({ thumbs: [{ data: 'x'.repeat(MAX_REPLY) }] }) };
   const r = await answerCall({ reqId: 't', method: 'collection_thumbs' }, handlers, null, 25);

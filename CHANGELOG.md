@@ -70,13 +70,17 @@ The ChatGPT image bridge is now **Backdraw**.
   wait".
 - Notifications never get a response, and error responses no longer carry a `null` id.
 - `initialize` answers with a protocol version the server supports instead of echoing any date.
+- Images that 1.x saved only in a caller's folder are copied into the images folder once, on the
+  first start; changing the images folder later no longer copies the whole history into it.
 
 ### Security
 
 - The extension's calls to the host go through an allow-list, and the host never takes a file path
   from the extension; gallery actions name an image only by its job id and index.
-- Collection folder and file names are made by the host and sanitised, every path is checked to
-  stay inside the collections folder, and saved images must really be PNG, JPEG, WebP or GIF.
+  At most four image uploads from the extension are collected at a time.
+- Collection folder and file names are made by the host and sanitised (Windows device names such as
+  `CON` or `CONIN$` included), every path is checked to stay inside the collections folder, and
+  saved images must really be PNG, JPEG, WebP or GIF.
 - The new `<all_urls>` host permission is used only to download an image you right-click and to
   show the confirmation note.
 - Added [SECURITY.md](SECURITY.md) with the threat model and how to report a vulnerability.

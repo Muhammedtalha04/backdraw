@@ -11,6 +11,6 @@
   "scripts": {
     "status": "node cli.js status",
     "install-bridge": "node install.js",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test"
   }
 }
