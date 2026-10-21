@@ -5,6 +5,7 @@ const net = require('net');
 const path = require('path');
 const identity = require('./identity');
 const platform = require('./platform');
+const { MAX_REFS, MAX_REF_BYTES, MAX_REFS_TOTAL_BYTES } = require('./lib/limits');
 
 const ROOT = __dirname;
 // Single version source; install.js copies package.json next to these files.
@@ -76,14 +77,16 @@ const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image
 function readReferences(list) {
   if (!list) return [];
   if (!Array.isArray(list)) list = [list];
-  if (list.length > 4) throw new Error('At most 4 reference images per request.');
+  if (list.length > MAX_REFS) throw new Error(`At most ${MAX_REFS} reference images per request.`);
+  let total = 0;
   return list.map(p => {
     const file = path.resolve(String(p));
     const mime = IMAGE_TYPES[path.extname(file).toLowerCase()];
     if (!mime) throw new Error(`Reference is not a png/jpg/webp/gif image: ${file}`);
     let buf;
     try { buf = fs.readFileSync(file); } catch (e) { throw new Error(`Cannot read reference image ${file} (${e.code || e.message}).`); }
-    if (buf.length > 20 * 1024 * 1024) throw new Error(`Reference image is larger than 20 MB: ${file}`);
+    if (buf.length > MAX_REF_BYTES) throw new Error(`Reference image is larger than ${MAX_REF_BYTES / 1048576} MB: ${file}`);
+    if ((total += buf.length) > MAX_REFS_TOTAL_BYTES) throw new Error(`The reference images together are larger than ${MAX_REFS_TOTAL_BYTES / 1048576} MB.`);
     return { name: path.basename(file), mime, data: buf.toString('base64') };
   });
 }

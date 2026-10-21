@@ -2,6 +2,9 @@
 // tab it opens in the background: the tab is never activated and no window is ever focused.
 // Only prompts, reference images, progress, chat links and image bytes cross the bridge; cookies,
 // tokens and passwords are never read.
+importScripts('aspect.js', 'i18n.js', 'menus.js', 'collections.js'); // crop maths; right-click reference collections
+
+const { cropRect } = self.BackdrawAspect;
 const HOST = 'io.github.muhammedtalha04.backdraw'; // identity.js HOST_NAME
 const VERSION = chrome.runtime.getManifest().version;
 const HOME = 'https://chatgpt.com/';
@@ -74,6 +77,7 @@ function onDisconnected(p, error) {
   refParts.clear();
   if (current) current.cancelled = true; // the host that owned the job is gone
   setBadge();
+  collectionsOffline();
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(connect, reconnectDelay);
   reconnectDelay = Math.min(reconnectDelay * 2, 60000);
@@ -86,7 +90,9 @@ async function onHostMessage(msg) {
       lastError = null;
       reconnectDelay = 2000;
       project = msg.project || null;
+      hostHome = msg.home || null;
       setBadge();
+      collectionsOnline(msg.collections);
       break;
     case 'config':
       project = msg.project || null;
@@ -116,6 +122,12 @@ async function onHostMessage(msg) {
       break;
     case 'request':
       handleRequest(msg);
+      break;
+    case 'reply':
+      settleHostCall(msg);
+      break;
+    case 'collections':
+      collectionsChanged(msg.collections);
       break;
     case 'reload':
       setTimeout(() => chrome.runtime.reload(), 300);
@@ -201,6 +213,7 @@ async function pageCall(tabId, fn, ...args) {
   });
   const value = res ? res.result : undefined;
   if (value && value.__error) throw new Error(`page.${fn}: ${value.__error}`);
+  if (fn === 'probe') noteChatgpt(value);
   return value;
 }
 
@@ -249,6 +262,7 @@ async function runJob(job) {
   const ctx = current = {
     job, cancelled: false, tabId: null, conversationUrl: null, lastText: '', sent: false, keepTab: false,
     step: 'starting', message: '', deadline: Date.now() + (job.timeoutSec || 600) * 1000, refs: job.refs || [],
+    startedAt: Date.now(),
   };
   ctx.progress = (step, message, extra = {}) => {
     ctx.step = step;
@@ -639,20 +653,70 @@ function bytesToB64(bytes) {
   return btoa(bin);
 }
 
-async function makePreview(b64, mime) {
-  const bmp = await createImageBitmap(new Blob([b64ToBytes(b64)], { type: mime || 'image/png' }));
-  const scale = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
-  const w = Math.max(1, Math.round(bmp.width * scale));
-  const h = Math.max(1, Math.round(bmp.height * scale));
+const blobToB64 = async blob => bytesToB64(new Uint8Array(await blob.arrayBuffer()));
+
+// The part r of the image on a canvas of its own size.
+function drawPart(bmp, r) {
+  const canvas = new OffscreenCanvas(r.width, r.height);
+  canvas.getContext('2d', { willReadFrequently: true }).drawImage(bmp, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
+  return canvas;
+}
+
+// Share of the pixels that are see-through (alpha < 250) and fully opaque, from every 4th pixel.
+function measureAlpha(canvas) {
+  const { data } = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height);
+  let n = 0;
+  let clear = 0;
+  let opaque = 0;
+  for (let i = 3; i < data.length; i += 16) {
+    n++;
+    if (data[i] < 250) clear++;
+    else if (data[i] === 255) opaque++;
+  }
+  const share = x => (n ? Math.round((x / n) * 10000) / 10000 : 0);
+  return { transparentShare: share(clear), opaqueShare: share(opaque) };
+}
+
+// A JPEG of at most 1024 px. Transparent parts show over a light checkerboard, as image editors
+// show them, so a see-through background can be told apart from a white one.
+async function makePreview(bmp, r, checker) {
+  const scale = Math.min(1, 1024 / Math.max(r.width, r.height));
+  const w = Math.max(1, Math.round(r.width * scale));
+  const h = Math.max(1, Math.round(r.height * scale));
   const canvas = new OffscreenCanvas(w, h);
   const g = canvas.getContext('2d');
   g.fillStyle = '#ffffff';
   g.fillRect(0, 0, w, h);
-  g.drawImage(bmp, 0, 0, w, h);
-  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.86 });
-  const result = { width: bmp.width, height: bmp.height, preview: bytesToB64(new Uint8Array(await blob.arrayBuffer())) };
-  bmp.close();
-  return result;
+  if (checker) {
+    const size = 16;
+    g.fillStyle = '#e2e2e2';
+    for (let y = 0; y < h; y += size) for (let x = (y / size) % 2 ? size : 0; x < w; x += 2 * size) g.fillRect(x, y, size, size);
+  }
+  g.drawImage(bmp, r.x, r.y, r.width, r.height, 0, 0, w, h);
+  return blobToB64(await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.86 }));
+}
+
+// Decodes a downloaded image once. With an aspect ratio it is cropped from the centre (exported as
+// PNG, which keeps any alpha); a transparent job measures the alpha of the (cropped) image; the
+// preview shows the cropped version.
+async function processImage(b64, mime, job) {
+  const bmp = await createImageBitmap(new Blob([b64ToBytes(b64)], { type: mime || 'image/png' }));
+  try {
+    const out = { width: bmp.width, height: bmp.height, crop: null, alpha: null, preview: null };
+    const rect = job.aspect ? cropRect(bmp.width, bmp.height, job.aspect.w, job.aspect.h) : null;
+    const r = rect || { x: 0, y: 0, width: bmp.width, height: bmp.height };
+    let canvas = null;
+    if (rect) {
+      canvas = drawPart(bmp, rect);
+      out.crop = { data: await blobToB64(await canvas.convertToBlob({ type: 'image/png' })), mime: 'image/png', width: rect.width, height: rect.height };
+    }
+    if (job.transparent) out.alpha = measureAlpha(canvas || drawPart(bmp, r));
+    out.preview = await makePreview(bmp, r, !!out.alpha && out.alpha.transparentShare > 0)
+      .catch(e => { log('warn', 'preview failed', String(e)); return null; });
+    return out;
+  } finally {
+    bmp.close();
+  }
 }
 
 async function fetchFromWorker(src) {
@@ -674,8 +738,11 @@ async function downloadImages(ctx, images) {
     }
     if (ctx.job.debug) log('debug', `image downloaded via ${r.via || 'worker'}`, { bytes: r.size, mime: r.mime });
     let meta = {};
-    try { meta = await makePreview(r.data, r.mime); } catch (e) { log('warn', 'preview failed', String(e)); }
-    out.push({ data: r.data, mime: r.mime, width: meta.width || im.w || null, height: meta.height || im.h || null, preview: meta.preview || null });
+    try { meta = await processImage(r.data, r.mime, ctx.job); } catch (e) { log('warn', 'image processing failed', String(e)); }
+    out.push({
+      data: r.data, mime: r.mime, width: meta.width || im.w || null, height: meta.height || im.h || null, preview: meta.preview || null,
+      crop: meta.crop || null, alpha: meta.alpha || null,
+    });
   }
   if (!out.length) throw fail('download_failed', `The image was generated but could not be downloaded. Open the chat: ${ctx.conversationUrl}`);
   return out;
@@ -812,12 +879,119 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     reply({
       version: VERSION, connected: hostReady, lastError, project, recent,
       current: current ? { id: current.job.id, step: current.step, message: current.message } : null,
+      chatgpt: { ...chatgptState, checking: !!chatgptCheck }, home: hostHome,
     });
   } else if (msg.type === 'popup:select') {
-    if (!hostReady) { reply({ ok: false, error: 'Köprü bağlı değil.' }); return; }
+    if (!hostReady) { reply({ ok: false, error: i18n.t('errNotConnected') }); return; }
     post({ type: 'set_project', project: msg.project });
     project = msg.project;
     reply({ ok: true });
+  }
+});
+
+// ---------------------------------------------------------------- setup checklist (popup)
+
+// Whether ChatGPT is signed in, as the last look at a chatgpt.com page showed it: every probe of a
+// job or a project list updates it, and the popup can ask for a fresh look. Only the page is looked
+// at (login wall, verification page, message box); never cookies, tokens or the session endpoint.
+// Kept in chrome.storage.local, so the popup still knows it after a browser restart.
+let chatgptState = { loggedIn: null, challenge: null, checkedAt: null };
+let chatgptCheck = null;
+let hostHome = null; // the user's home folder (from the host): the extension's pages show it as "~"
+
+function noteChatgpt(st) {
+  if (!st || !(st.login || st.challenge || st.composer)) return; // still loading
+  const next = st.challenge ? { loggedIn: chatgptState.loggedIn, challenge: st.challenge } : { loggedIn: !st.login, challenge: null };
+  const changed = next.loggedIn !== chatgptState.loggedIn || next.challenge !== chatgptState.challenge;
+  chatgptState = { ...next, checkedAt: Date.now() };
+  if (changed) chrome.storage.local.set({ chatgptState }).catch(() => {});
+}
+
+// Opens chatgpt.com in a background tab until it shows a login wall, a verification page or the
+// message box, then closes it. "Signed in" waits a moment: the "Log in" button can come after the box.
+function checkChatgpt() {
+  if (!chatgptCheck) {
+    chatgptCheck = withHelperTab(HOME, async tabId => {
+      const until = Date.now() + 45000;
+      let composerSince = 0;
+      await sleep(1500);
+      while (Date.now() < until) {
+        const st = await pageCall(tabId, 'probe', null).catch(() => null);
+        if (st && (st.login || st.challenge)) return chatgptState;
+        composerSince = st && st.composer ? composerSince || Date.now() : 0;
+        if (composerSince && Date.now() - composerSince >= 2500) return chatgptState;
+        await sleep(1000);
+      }
+      throw new Error(i18n.t('errChatgptCheck'));
+    }).finally(() => { chatgptCheck = null; });
+  }
+  return chatgptCheck;
+}
+
+// The popup shows these in its own language; anything else as it is.
+function setupError(e, fallbackKey) {
+  if (e && e.reason === 'needs_human') return i18n.t(chatgptState.challenge ? 'chatgptChallenge' : 'chatgptOut');
+  if (e && e.reason === 'not_found' && fallbackKey) return i18n.t(fallbackKey);
+  return String((e && e.message) || e);
+}
+
+const setupRequests = new Map([
+  ['popup:check-chatgpt', async () => ({ chatgpt: await checkChatgpt() })],
+  ['popup:projects', async () => {
+    try { return { projects: await listProjects() }; } catch (e) { if (e.reason === 'not_found') return { projects: [] }; throw e; }
+  }],
+  // A project row without a link: open it once to read the link (popup:select then saves it).
+  ['popup:resolve-project', async msg => {
+    try { return { project: await resolveProject(String(msg.name || '')) }; } catch (e) { throw new Error(setupError(e, 'selectFailed')); }
+  }],
+  // "Try again" after running install.js: connect now instead of after the back-off.
+  ['popup:reconnect', async () => {
+    if (!hostReady) {
+      reconnectDelay = 2000;
+      connect();
+      for (let i = 0; i < 20 && port && !hostReady; i++) await sleep(150);
+    }
+    return { connected: hostReady, lastError };
+  }],
+]);
+
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  const handler = msg && setupRequests.get(msg.type);
+  if (!handler || sender.id !== chrome.runtime.id || !String(sender.url || '').startsWith(chrome.runtime.getURL(''))) return;
+  handler(msg).then(r => reply({ ok: true, ...r }), e => reply({ ok: false, error: setupError(e) }));
+  return true;
+});
+
+chrome.storage.local.get('chatgptState').then(r => {
+  if (r.chatgptState && !chatgptState.checkedAt) chatgptState = { ...chatgptState, ...r.chatgptState };
+}).catch(() => {});
+
+// ---------------------------------------------------------------- gallery side panel
+
+// What the side panel may ask the host through the worker (the host has its own allow-list too).
+const PANEL_HOST_METHODS = new Set(['gallery_list', 'gallery_thumb', 'reveal_image', 'collection_add_job_image', 'list_collections']);
+
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg || sender.id !== chrome.runtime.id || !String(sender.url || '').startsWith(chrome.runtime.getURL(''))) return;
+  if (msg.type === 'panel:status') {
+    reply({
+      connected: hostReady, lastError,
+      current: current ? { id: current.job.id, step: current.step, message: current.message, startedAt: current.startedAt } : null,
+    });
+  } else if (msg.type === 'panel:call') {
+    if (!PANEL_HOST_METHODS.has(msg.method)) { reply({ ok: false, error: `Not allowed: ${msg.method}` }); return; }
+    callHost(msg.method, msg.params || {}).then(result => reply({ ok: true, result }), e => reply({ ok: false, error: String((e && e.message) || e) }));
+    return true;
+  }
+});
+
+// A menu click counts as the user gesture sidePanel.open needs, so nothing is awaited before it.
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== backdrawMenus.GALLERY_ID || !tab || !(tab.windowId >= 0)) return;
+  try {
+    chrome.sidePanel.open({ windowId: tab.windowId }).catch(e => log('warn', 'the side panel did not open', String(e)));
+  } catch (e) {
+    log('warn', 'the side panel did not open', String(e));
   }
 });
 

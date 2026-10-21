@@ -4,7 +4,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const identity = require('../identity');
 
 const USER_TAG = (os.userInfo().username || 'user').replace(/[^A-Za-z0-9_.-]/g, '_');
@@ -16,16 +16,17 @@ function pipePath() {
 // In the home folder, not under AppData: the Claude desktop app is an MSIX package, and AppData
 // writes made from its processes are redirected into the package's private storage, where Chrome
 // can't see them. The home folder itself is not redirected.
-function installDir() {
-  return path.join(os.homedir(), identity.INSTALL_DIR_NAME);
+// home: the user's home folder; install.js passes it so its tests can use a temporary one.
+function installDir(home = os.homedir()) {
+  return path.join(home, identity.INSTALL_DIR_NAME);
 }
 
-function legacyInstallDir() {
-  return path.join(os.homedir(), ...identity.LEGACY.INSTALL_DIR);
+function legacyInstallDir(home = os.homedir()) {
+  return path.join(home, ...identity.LEGACY.INSTALL_DIR);
 }
 
-function claudeConfigFile() {
-  return path.join(os.homedir(), '.claude.json');
+function claudeConfigFile(home = os.homedir()) {
+  return path.join(home, '.claude.json');
 }
 
 // Chat MCP config of the Claude desktop app: the MSIX package's private copy and the classic one.
@@ -101,6 +102,11 @@ function registerNativeHost(hostName, manifestPath) {
   return key;
 }
 
+// Where a host's registration lives, for display (e.g. the uninstall dry run).
+function nativeHostEntry(hostName) {
+  return regKey(hostName);
+}
+
 function unregisterNativeHost(hostName) {
   try { realRegistry(hostName, 'delete'); } catch {}
   try { execFileSync('reg.exe', ['delete', regKey(hostName), '/f'], { stdio: 'ignore' }); } catch {}
@@ -121,8 +127,18 @@ function claudeCli() {
   try { return execFileSync('where.exe', ['claude'], { encoding: 'utf8' }).split(/\r?\n/)[0].trim() || null; } catch { return null; }
 }
 
+// Opens Explorer with the file selected. No shell: explorer.exe is started directly. Its own parser
+// splits "/select," arguments at commas, so the path is always quoted (a Windows path never holds ").
+function revealInFolder(file, run = spawn) {
+  if (typeof file !== 'string' || !path.win32.isAbsolute(file) || file.includes('"')) throw new Error('Not an absolute file path.');
+  const child = run('explorer.exe', ['/select,', `"${file}"`], { detached: true, stdio: 'ignore', windowsVerbatimArguments: true });
+  child.on('error', () => {});
+  child.unref();
+}
+
 module.exports = {
   pipePath, installDir, legacyInstallDir, claudeConfigFile, desktopConfigFiles, desktopAppRunning, parseClaudeProcesses,
-  writeHostLauncher, registerNativeHost, unregisterNativeHost,
+  writeHostLauncher, registerNativeHost, unregisterNativeHost, nativeHostEntry,
   picturesDir, claudeCli,
+  revealInFolder,
 };

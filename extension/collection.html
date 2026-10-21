@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Backdraw</title>
+  <link rel="stylesheet" href="theme.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
+    form { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+    h1 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; }
+    h1 img { width: 24px; height: 24px; border-radius: 7px; }
+    .thumb { display: grid; place-items: center; height: 190px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); overflow: hidden; }
+    .thumb img { max-width: 100%; max-height: 100%; }
+    #size { color: var(--muted); font-size: 11px; text-align: center; margin-top: -6px; }
+    label { color: var(--muted); }
+    input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); color: var(--fg); font: inherit; }
+    input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    #msg { margin: 0; min-height: 18px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    #msg.bad { color: var(--bad); font-weight: 600; }
+    .row { display: flex; gap: 8px; justify-content: flex-end; }
+    button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--fg); font: inherit; cursor: pointer; }
+    button[type=submit] { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+    button[type=submit]:hover:not(:disabled) { background: var(--accent-hover); }
+    button:disabled { opacity: .5; cursor: default; }
+  </style>
+  <script src="i18n.js"></script>
+  <script src="settings.js"></script>
+</head>
+<body>
+  <form id="form">
+    <h1><img src="icons/mascot-96.png" alt=""><span data-i18n="newTitle">New collection</span></h1>
+    <div id="thumb" class="thumb"><span data-i18n="preparing">Preparing the image…</span></div>
+    <div id="size"></div>
+    <label for="name" data-i18n="nameLabel">Collection name</label>
+    <input id="name" autocomplete="off" spellcheck="false" data-i18n-placeholder="namePlaceholder">
+    <p id="msg" role="status"></p>
+    <div class="row">
+      <button type="button" id="cancel" data-i18n="cancel">Cancel</button>
+      <button type="submit" id="add" data-i18n="add">Add</button>
+    </div>
+  </form>
+  <script src="collection.js"></script>
+</body>
+</html>

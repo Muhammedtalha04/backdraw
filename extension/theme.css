@@ -1,0 +1,22 @@
+/* Colours of the extension's pages. data-theme on <html> is the user's choice (settings.js):
+   "light", "dark", or "auto", which follows the system. Dark is the brand look. */
+:root {
+  color-scheme: light;
+  --bg: #ffffff; --surface: #f6f5fa; --fg: #1c1a24; --muted: #6b6878; --line: #e6e3ef; --field: #ffffff;
+  --accent: #7c3aed; --accent-hover: #6d28d9; --accent-fg: #ffffff; --accent-soft: #efe8fd; --link: #6d28d9;
+  --ok: #1a7f37; --bad: #c62828; --warn: #a15c00;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e0d12; --surface: #17151f; --fg: #f2f0f7; --muted: #a29eb2; --line: #2a2736; --field: #17151f;
+  --accent: #7c3aed; --accent-hover: #8b5cf6; --accent-fg: #ffffff; --accent-soft: rgba(124, 58, 237, .2); --link: #a78bfa;
+  --ok: #3fb950; --bad: #ff6b6b; --warn: #e3a33b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e0d12; --surface: #17151f; --fg: #f2f0f7; --muted: #a29eb2; --line: #2a2736; --field: #17151f;
+    --accent: #7c3aed; --accent-hover: #8b5cf6; --accent-fg: #ffffff; --accent-soft: rgba(124, 58, 237, .2); --link: #a78bfa;
+    --ok: #3fb950; --bad: #ff6b6b; --warn: #e3a33b;
+  }
+}

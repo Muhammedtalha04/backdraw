@@ -1,0 +1,3 @@
+{
+  "extDescription": { "message": "Claude'un, oturum açtığın kendi ChatGPT hesabınla arka planda bir sekmede görsel üretmesini sağlar. Tamamen bilgisayarında çalışır.", "description": "Extension description (manifest). Every other text is in i18n.js." }
+}

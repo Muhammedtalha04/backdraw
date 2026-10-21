@@ -2,17 +2,19 @@
   "manifest_version": 3,
   "name": "Backdraw",
   "short_name": "Backdraw",
-  "version": "1.1.0",
-  "description": "Lets Claude generate images with your own signed-in ChatGPT account in a background tab. Runs entirely on your computer.",
+  "version": "2.0.0",
+  "description": "__MSG_extDescription__",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtu/jyAJ3e3hnNrNGCxfzvHLOp80L9c3j71jmQV2ymY1DbPfZNJUdrszM3dnk6SFlm/X42F/e1Pf9RoQqMKujWr7KRTtH257vBMmLbk8Eo0LytpGP0F8WOQIcp5TxLZgvqSlGTjdbB2QFJt+uisJFE8Y3nWnZpsmejes0m9NObpqBc7Q1tzZrDAnh6gzddyF8fkYU/gS2Qtu5Vd2YbRiVN18tUUh2Bb+QuXlTlzOE1JQ49A9qRTmXejtcn943ZaQ0aucooNQU4hZAFVUT+25UhzuGMZDFzZALqL19hP0EP4Erm1yitjICvR5yK/7nYObGa3LynEeH7dDJ+qoJaf4TEQIDAQAB",
+  "default_locale": "en",
   "minimum_chrome_version": "116",
-  "permissions": ["nativeMessaging", "scripting", "storage", "alarms"],
-  "host_permissions": ["https://chatgpt.com/*", "https://*.oaiusercontent.com/*"],
+  "permissions": ["nativeMessaging", "scripting", "storage", "alarms", "contextMenus", "sidePanel"],
+  "host_permissions": ["https://chatgpt.com/*", "https://*.oaiusercontent.com/*", "<all_urls>"],
   "background": { "service_worker": "background.js" },
   "action": {
     "default_title": "Backdraw",
     "default_popup": "popup.html",
     "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" }
   },
+  "side_panel": { "default_path": "sidepanel.html" },
   "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
 }

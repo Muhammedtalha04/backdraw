@@ -10,6 +10,7 @@ module.exports = {
   PIPE_ENV: 'BACKDRAW_PIPE', // pipe path override, tests only
   INSTALL_DIR_NAME: '.backdraw', // in the user's home folder
   IMAGES_DIR_NAME: 'Backdraw', // in the user's Pictures folder, for new installs
+  COLLECTIONS_DIR_NAME: 'References', // reference collections, inside IMAGES_DIR_NAME
 
   // Names used before the rename; install.js migrates from them and cleans them up.
   LEGACY: {

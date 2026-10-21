@@ -1,0 +1,90 @@
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; width: 348px; background: var(--bg); color: var(--fg); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+
+header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.mascot { flex: none; width: 36px; height: 36px; border-radius: 10px; }
+.brand { flex: 1; display: flex; flex-direction: column; line-height: 1.25; }
+.brand b { font-size: 15px; }
+.brand small { color: var(--muted); font-size: 11px; }
+.icon { flex: none; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); }
+.icon:hover, .icon[aria-expanded="true"] { background: var(--surface); color: var(--fg); }
+
+section { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+h2 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 10px; font-size: 13px; }
+h2 small { color: var(--muted); font-size: 11px; font-weight: 400; }
+
+.settings { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: var(--surface); }
+.settings label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 11px; }
+select { padding: 5px 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--field); color: var(--fg); font-size: 12px; }
+
+.btn { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--fg); overflow-wrap: anywhere; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn.danger { border-color: var(--bad); color: var(--bad); }
+.btn:disabled { opacity: .55; cursor: default; }
+.link { padding: 0; border: 0; background: none; color: var(--link); font-weight: 600; }
+
+/* setup checklist */
+.steps { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.step { display: flex; gap: 10px; }
+.mark { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--line); border-radius: 50%;
+  background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 700; }
+.step.done .mark { border-color: var(--ok); background: var(--ok); color: #fff; }
+.step.todo .mark { border-color: var(--bad); background: var(--bad); color: #fff; }
+.step-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.step-title { font-weight: 600; line-height: 20px; }
+.step.wait .step-title { color: var(--muted); }
+.note { margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.note.err { color: var(--bad); }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.copy { display: flex; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.copy code { flex: 1; min-width: 0; padding: 6px 8px; font: 12px/1.4 Consolas, "Cascadia Mono", monospace; overflow-wrap: anywhere; }
+.copy button { flex: none; padding: 0 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--link); font-size: 12px; font-weight: 600; }
+.projects { display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow-y: auto; }
+.projects .btn { text-align: left; }
+.spinner { display: inline-block; flex: none; width: 11px; height: 11px; margin-right: 6px; border: 2px solid var(--accent-soft); border-top-color: var(--accent);
+  border-radius: 50%; vertical-align: -1px; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* status */
+.rows { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; }
+.rows dt { color: var(--muted); }
+.rows dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.ok { color: var(--ok); font-weight: 600; }
+.bad { color: var(--bad); font-weight: 600; }
+.rows .link { margin-left: 6px; font-size: 12px; }
+#pick { width: 100%; margin-top: 10px; }
+details { margin-top: 10px; }
+summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+details .steps { margin-top: 10px; }
+
+/* reference collections */
+#colList { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
+#colList .btn { display: flex; justify-content: space-between; gap: 8px; text-align: left; }
+#colList .btn span:first-child { min-width: 0; }
+#colList .count { flex: none; }
+#colList .count, #colPath { color: var(--muted); }
+#colHead { display: flex; align-items: center; gap: 8px; }
+#colName { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+#colPath { margin: 4px 0 8px; font-size: 11px; overflow-wrap: anywhere; }
+#colDetail .actions, #colEdit { margin-bottom: 8px; }
+#colEdit { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#colEdit p { width: 100%; margin: 0; overflow-wrap: anywhere; }
+#colEdit input { flex: 1; min-width: 0; padding: 5px 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--field); }
+select:focus-visible, #colEdit input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+#colGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; max-height: 280px; overflow-y: auto; }
+.tile { position: relative; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--surface); }
+.tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.tile .noimg { padding: 4px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.tile button { position: absolute; top: 3px; right: 3px; padding: 0 6px; border: 0; border-radius: 10px; background: rgba(0, 0, 0, .55); color: #fff; line-height: 18px; }
+.tile button.armed { background: var(--bad); }
+#colMsg { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+#colMsg:empty { display: none; }
+#colMsg.bad { color: var(--bad); font-weight: 600; }
+
+footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 14px; color: var(--muted); font-size: 11px; }
+footer .link { flex: none; font-size: 12px; }

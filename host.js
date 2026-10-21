@@ -10,14 +10,23 @@ const os = require('os');
 const path = require('path');
 const identity = require('./identity');
 const shared = require('./shared');
+const { stamp, slugify, sniffExt } = require('./lib/naming');
+const { normName, parseProjectUrl, pickProject } = require('./lib/projects');
+const { buildText } = require('./lib/prompt');
+const { aspectOption } = require('./lib/aspect');
+const { pngInfo } = require('./lib/png');
+const { MAX_REFS, MAX_REF_BYTES, MAX_REFS_TOTAL_BYTES, MAX_COLLECTION_BYTES } = require('./lib/limits');
+const { withCollection } = require('./lib/collections');
+const store = require('./lib/collection-store');
+const { callAssembler, answerCall } = require('./lib/extension-calls');
+const gallery = require('./lib/gallery');
+const platform = require('./platform');
 
 const VERSION = shared.VERSION;
 const LOG_FILE = path.join(shared.LOG_DIR, 'host.log');
 const MAX_JOBS = 100;
 // needs_reference: ChatGPT asked for the image to be uploaded again; text_reply: it answered in text.
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'needs_reference', 'text_reply']);
-const MAX_REFS = 4;
-const MAX_REF_BYTES = 20 * 1024 * 1024;
 const CHUNK = 600000; // base64 chars per message; Chrome caps host->extension messages at 1 MB
 
 let config = loadConfig();
@@ -50,7 +59,9 @@ function loadConfig() {
   return {
     project: c.project || null,
     outputDir: c.outputDir || path.join(os.homedir(), 'Pictures', identity.IMAGES_DIR_NAME),
+    collectionsDir: c.collectionsDir || path.join(os.homedir(), 'Pictures', identity.IMAGES_DIR_NAME, identity.COLLECTIONS_DIR_NAME),
     debug: !!c.debug,
+    imagesCentralized: !!c.imagesCentralized,
   };
 }
 
@@ -97,7 +108,8 @@ function onExtensionMessage(msg) {
     case 'hello':
       extension = { version: msg.version || '?', connectedAt: now() };
       log('info', `extension connected (v${extension.version})`);
-      toExtension({ type: 'welcome', hostVersion: VERSION, project: config.project });
+      // home: the extension shows paths with the home folder (it holds the user's name) as "~".
+      toExtension({ type: 'welcome', hostVersion: VERSION, project: config.project, collections: collectionSummaries(), home: os.homedir() });
       pump();
       break;
     case 'progress': onProgress(msg); break;
@@ -115,6 +127,10 @@ function onExtensionMessage(msg) {
       try { setProject(msg.project); } catch (e) { log('warn', 'project from popup rejected', e.message); }
       break;
     case 'log': log(msg.level || 'ext', `[ext] ${msg.msg}`, msg.data); break;
+    case 'call_chunk': extensionCalls.chunk(msg); break;
+    case 'call':
+      answerCall(msg, handlers, extensionCalls.take(msg.reqId), MAX_COLLECTION_BYTES / 1024 / 1024).then(toExtension);
+      break;
     default: log('warn', 'unknown message from extension', msg.type);
   }
 }
@@ -131,6 +147,9 @@ function askExtension(action, params = {}, timeoutMs = 120000) {
     toExtension({ type: 'request', reqId, action, params });
   });
 }
+
+// Calls from the extension itself (collections); lib/extension-calls.js keeps them to its allow-list.
+const extensionCalls = callAssembler(Math.ceil(MAX_COLLECTION_BYTES / 3) * 4 + 4);
 
 // ---------------------------------------------------------------- jobs
 
@@ -165,13 +184,18 @@ function createJob(p) {
   if (refs.length > MAX_REFS) throw new shared.BridgeError(`At most ${MAX_REFS} reference images per request.`, 'BAD_REQUEST');
   for (const r of refs) {
     if (!r || !r.data || !/^image\//.test(r.mime || '')) throw new shared.BridgeError('Each reference must be an image file.', 'BAD_REQUEST');
-    if (r.data.length * 0.75 > MAX_REF_BYTES) throw new shared.BridgeError(`Reference "${r.name}" is larger than 20 MB.`, 'BAD_REQUEST');
+    if (r.data.length * 0.75 > MAX_REF_BYTES) throw new shared.BridgeError(`Reference "${r.name}" is larger than ${MAX_REF_BYTES / 1048576} MB.`, 'BAD_REQUEST');
+  }
+  if (refs.reduce((sum, r) => sum + r.data.length * 0.75, 0) > MAX_REFS_TOTAL_BYTES) {
+    throw new shared.BridgeError(`The reference images together are larger than ${MAX_REFS_TOTAL_BYTES / 1048576} MB.`, 'BAD_REQUEST');
   }
   if (mode === 'collect' && refs.length) throw new shared.BridgeError('Reference images cannot be used when only fetching images.', 'BAD_REQUEST');
+  let aspect;
+  try { aspect = aspectOption(p.aspect); } catch (e) { throw new shared.BridgeError(e.message, 'BAD_REQUEST'); }
   const job = {
     id: `img_${crypto.randomBytes(4).toString('hex')}`,
     mode, status: 'queued', step: 'queued', message: 'Waiting for its turn',
-    prompt, sendAsIs: !!p.sendAsIs, startUrl, project: startUrl ? null : config.project,
+    prompt, sendAsIs: !!p.sendAsIs, aspect, transparent: !!p.transparent, startUrl, project: startUrl ? null : config.project,
     // outputDir: legacy clients, the host writes a copy there. copyTo: the MCP server copies itself
     // (it runs in the caller's context, so the copy lands where the caller can see it).
     outputDir: p.outputDir || null, copyTo: p.copyTo || null, copies: [],
@@ -187,19 +211,6 @@ function createJob(p) {
   log('info', `job ${job.id} queued`, { prompt: prompt.slice(0, 300), start: startUrl || job.project.url });
   pump();
   return job;
-}
-
-// The wording nudges ChatGPT to call its image tool instead of asking questions first.
-function buildText(job) {
-  if (job.sendAsIs) return job.prompt;
-  if (job.references && job.references.length) {
-    const what = job.references.length > 1 ? 'The attached images are references' : 'The attached image is the reference';
-    return `${what}. Follow the instructions below; when they ask for an edit, change only what is asked and keep everything else identical. Don't ask follow-up questions; generate the image directly.\n\n${job.prompt}`;
-  }
-  if (job.startUrl && /\/c\/[0-9a-f-]{8,}/i.test(job.startUrl)) {
-    return `Update the image with the changes below and generate the new image directly, without follow-up questions.\n\n${job.prompt}`;
-  }
-  return `Generate an image from the description below. Don't ask follow-up questions; create the image directly.\n\n${job.prompt}`;
 }
 
 function pump() {
@@ -221,6 +232,7 @@ function pump() {
     job: {
       id: job.id, mode: job.mode, text: job.mode === 'collect' ? '' : buildText(job), startUrl: job.startUrl || job.project.url,
       timeoutSec: job.timeoutSec, debug: config.debug, autoReattach: job.autoReattach,
+      aspect: job.aspect ? job.aspect.target : null, transparent: !!job.transparent,
     },
   });
   clearTimeout(watchdog);
@@ -299,26 +311,6 @@ function cancelJob(id) {
 
 // ---------------------------------------------------------------- saving images
 
-function stamp(d = new Date()) {
-  const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-}
-
-function slugify(s) {
-  const tr = { ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u', Ç: 'c', Ğ: 'g', İ: 'i', Ö: 'o', Ş: 's', Ü: 'u' };
-  const slug = s.replace(/[çğıöşüÇĞİÖŞÜ]/g, c => tr[c]).normalize('NFKD').replace(/[̀-ͯ]/g, '')
-    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, 48).replace(/-+$/, '');
-  return slug || 'image';
-}
-
-function sniffExt(b) {
-  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e) return 'png';
-  if (b[0] === 0xff && b[1] === 0xd8) return 'jpg';
-  if (b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return 'webp';
-  if (b.subarray(0, 3).toString('latin1') === 'GIF') return 'gif';
-  return null;
-}
-
 function uniquePath(dir, base, ext) {
   let file = path.join(dir, `${base}.${ext}`);
   for (let n = 2; fs.existsSync(file); n++) file = path.join(dir, `${base}_${n}.${ext}`);
@@ -326,6 +318,8 @@ function uniquePath(dir, base, ext) {
 }
 
 // Every image is saved in the central images folder. A legacy outputDir request gets an extra copy.
+// When the extension cropped an image to the asked aspect ratio, the crop is the main file and
+// ChatGPT's original is kept next to it as <name>_full.
 function saveImages(job, images, title) {
   fs.mkdirSync(config.outputDir, { recursive: true });
   fs.mkdirSync(shared.PREVIEW_DIR, { recursive: true });
@@ -338,13 +332,23 @@ function saveImages(job, images, title) {
     const mimeExt = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[String(img.mime).split(';')[0]];
     const name = images.length > 1 ? `${base}-${i + 1}` : base;
     const ext = sniffExt(buf) || mimeExt || 'png';
-    const file = uniquePath(config.outputDir, name, ext);
-    fs.writeFileSync(file, buf);
+    const cropped = img.crop ? Buffer.from(img.crop.data || '', 'base64') : null;
+    const crop = cropped && cropped.length >= 100 ? cropped : null;
+    const main = crop || buf;
+    const mainExt = crop ? 'png' : ext;
+    const file = uniquePath(config.outputDir, name, mainExt);
+    fs.writeFileSync(file, main);
+    let full = null;
+    if (crop) {
+      const fullFile = uniquePath(config.outputDir, `${path.basename(file, `.${mainExt}`)}_full`, ext);
+      fs.writeFileSync(fullFile, buf);
+      full = { path: fullFile, width: img.width || null, height: img.height || null, bytes: buf.length };
+    }
     if (job.outputDir && path.resolve(job.outputDir) !== path.resolve(config.outputDir)) {
       try {
         fs.mkdirSync(job.outputDir, { recursive: true });
-        const copy = uniquePath(job.outputDir, name, ext);
-        fs.writeFileSync(copy, buf);
+        const copy = uniquePath(job.outputDir, name, mainExt);
+        fs.writeFileSync(copy, main);
         job.copies.push(copy);
       } catch (e) { log('warn', 'copy to output_dir failed', e.message); }
     }
@@ -353,7 +357,14 @@ function saveImages(job, images, title) {
       preview = path.join(shared.PREVIEW_DIR, `${job.id}-${i + 1}.jpg`);
       fs.writeFileSync(preview, Buffer.from(img.preview, 'base64'));
     }
-    return { path: file, width: img.width || null, height: img.height || null, bytes: buf.length, preview };
+    // From ChatGPT's own bytes: a cropped copy is always RGBA, so only the original tells whether
+    // ChatGPT sent an alpha channel.
+    const info = pngInfo(buf);
+    return {
+      path: file, width: (crop ? img.crop.width : img.width) || null, height: (crop ? img.crop.height : img.height) || null,
+      bytes: main.length, preview, full, aspect: job.aspect ? job.aspect.target.label : null,
+      png: info && { colorType: info.colorType, alphaChannel: info.alphaChannel, trns: info.trns }, alpha: img.alpha || null,
+    };
   });
 }
 
@@ -368,8 +379,10 @@ function imagesFromChat(job) {
 }
 
 // v1.0 saved images straight into the caller's output_dir only. Keep a copy of every image in the
-// central folder too, and point the job there (callers may rename or move their own copies).
+// central folder too, and point the job there (callers may rename or move their own copies). This
+// runs once: changing the images folder later must not copy the whole history into the new one.
 function centralizeLegacyImages() {
+  if (config.imagesCentralized) return;
   const central = path.resolve(config.outputDir).toLowerCase();
   let changed = false;
   for (const j of jobs) {
@@ -401,6 +414,8 @@ function centralizeLegacyImages() {
     }
   }
   if (changed) saveJobs();
+  config.imagesCentralized = true;
+  try { saveConfig(); } catch (e) { log('warn', 'saving the config failed', String(e)); }
 }
 
 function cleanupPreviews() {
@@ -415,35 +430,6 @@ function cleanupPreviews() {
 
 // ---------------------------------------------------------------- projects
 
-function normName(s) {
-  return String(s || '').toLocaleLowerCase('tr').replace(/ı/g, 'i').normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '');
-}
-
-function similarity(a, b) {
-  if (!a || !b) return 0;
-  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    let prev = row[0];
-    row[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const tmp = row[j];
-      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
-      prev = tmp;
-    }
-  }
-  return 1 - row[b.length] / Math.max(a.length, b.length);
-}
-
-function parseProjectUrl(url) {
-  let u;
-  try { u = new URL(String(url)); } catch { return null; }
-  if (!/^(www\.)?chatgpt\.com$/i.test(u.hostname)) return null;
-  const m = u.pathname.match(/^\/g\/(g-p-[0-9a-f]+)(-[^/]*)?(?:\/|$)/i);
-  if (!m) return null;
-  return { id: m[1], url: `https://chatgpt.com/g/${m[1]}${m[2] || ''}/project`, slug: (m[2] || '').slice(1) };
-}
-
 function setProject(p) {
   const parsed = parseProjectUrl(p && p.url);
   if (!parsed) throw new shared.BridgeError('That is not a ChatGPT project link (expected https://chatgpt.com/g/g-p-…/project).', 'BAD_REQUEST');
@@ -456,21 +442,76 @@ function setProject(p) {
 
 async function selectProject(p) {
   if (p.url) return { project: setProject({ url: p.url, name: p.name }) };
-  const wanted = normName(p.name);
-  if (!wanted) throw new shared.BridgeError('Give the project name (or its URL).', 'BAD_REQUEST');
+  if (!normName(p.name)) throw new shared.BridgeError('Give the project name (or its URL).', 'BAD_REQUEST');
   const projects = await askExtension('list_projects', {}, 120000);
-  const scored = projects.map(x => {
-    const n = normName(x.name);
-    const score = n === wanted ? 2 : n && (n.includes(wanted) || wanted.includes(n)) ? 1.5 : similarity(n, wanted);
-    return { ...x, score };
-  }).sort((a, b) => b.score - a.score);
-  const best = scored[0];
+  const { project: best, error, ties } = pickProject(projects, p.name);
   const names = projects.map(x => x.name).join(', ') || '(none)';
-  if (!best || best.score < 0.7) throw new shared.BridgeError(`No ChatGPT project matches "${p.name}". Available projects: ${names}`, 'NOT_FOUND');
-  const ties = scored.filter(x => x.score === best.score);
-  if (ties.length > 1) throw new shared.BridgeError(`"${p.name}" matches several projects: ${ties.map(x => x.name).join(', ')}. Use the exact name or URL.`, 'AMBIGUOUS');
+  if (error === 'NOT_FOUND') throw new shared.BridgeError(`No ChatGPT project matches "${p.name}". Available projects: ${names}`, 'NOT_FOUND');
+  if (error === 'AMBIGUOUS') throw new shared.BridgeError(`"${p.name}" matches several projects: ${ties.map(x => x.name).join(', ')}. Use the exact name or URL.`, 'AMBIGUOUS');
   const chosen = best.url ? best : await askExtension('resolve_project', { name: best.name }, 120000);
   return { project: setProject(chosen), available: projects.map(x => x.name) };
+}
+
+// ---------------------------------------------------------------- reference collections
+
+function collectionSummaries() {
+  try {
+    return store.list(config.collectionsDir).map(x => ({ name: x.name, count: x.count }));
+  } catch (e) {
+    log('warn', 'could not read the collections folder', { dir: config.collectionsDir, error: e.message });
+    return [];
+  }
+}
+
+// The extension rebuilds its right-click menu from the list it gets after every change.
+function collectionsChanged(what, result) {
+  log('info', `collections: ${what}`, result);
+  if (extension) toExtension({ type: 'collections', collections: collectionSummaries() });
+  return result;
+}
+
+// reference_collection: the host reads the chosen images itself (it owns the folder) and attaches
+// them after the caller's own reference images (lib/collections.js decides which).
+function createWithCollection(p) {
+  const dir = config.collectionsDir;
+  const { params, collection } = withCollection(p, { find: name => store.find(dir, name), read: (col, im) => store.readImage(dir, col, im) });
+  const job = createJob(params);
+  if (collection) {
+    job.collection = collection;
+    saveJobs();
+    log('info', `job ${job.id} uses collection "${collection.name}"`, { used: collection.used, skipped: collection.skipped });
+  }
+  return job;
+}
+
+// ---------------------------------------------------------------- gallery (the extension's side panel)
+
+// The panel names an image by job id and number only; the file is always the one the job saved.
+function galleryImage(p, needFile) {
+  const found = gallery.findJobImage(jobs, p.jobId, p.n);
+  if (!found) throw new shared.BridgeError('That image is not in the gallery any more.', 'NOT_FOUND');
+  if (needFile && !gallery.fileExists(found.image.path)) {
+    throw new shared.BridgeError(`The image file was moved or deleted: ${found.image.path}`, 'NOT_FOUND');
+  }
+  return found;
+}
+
+// Like a right-click add, with the chat as the source; the size limit applies before the file is read.
+// The panel's small JPEG (checked by the store like any thumbnail) or else the saved preview becomes
+// the collection's thumbnail; the store drops a preview over its thumbnail limit (256 KB), so then
+// there is none.
+function addJobImage(p) {
+  const { job, image } = galleryImage(p, true);
+  if (fs.statSync(image.path).size > MAX_COLLECTION_BYTES) {
+    throw new shared.BridgeError(`The image is larger than ${MAX_COLLECTION_BYTES / 1024 / 1024} MB.`, 'TOO_LARGE');
+  }
+  const thumb = typeof p.thumb === 'string' && p.thumb ? p.thumb : gallery.readPreview(shared.PREVIEW_DIR, image).data;
+  const params = {
+    collection: p.collection, create: !!p.create, data: fs.readFileSync(image.path).toString('base64'), thumb,
+    sourceUrl: job.conversationUrl, pageUrl: job.conversationUrl, width: image.width, height: image.height,
+  };
+  const fileName = path.basename(image.path, path.extname(image.path));
+  return collectionsChanged('add from the gallery', store.add(config.collectionsDir, params, new Date(), { fileName }));
 }
 
 // ---------------------------------------------------------------- local API (named pipe)
@@ -483,7 +524,9 @@ function publicJob(j) {
     conversationUrl: j.conversationUrl, startUrl: j.startUrl, images: j.images, assistantText: j.assistantText,
     error: j.error, reason: j.reason, createdAt: j.createdAt, startedAt: j.startedAt, finishedAt: j.finishedAt,
     references: j.references || [], reattached: !!j.reattached, editCheck: j.editCheck || null,
+    aspect: j.aspect ? j.aspect.target.label : null, transparent: !!j.transparent,
     copyTo: j.copyTo || null, copies: j.copies || [],
+    collection: j.collection || null,
     chatImages: j.status === 'needs_reference' || j.status === 'text_reply' ? imagesFromChat(j) : undefined,
     queuePosition: j.status === 'queued' ? jobs.filter(x => x.status === 'queued').indexOf(j) + 1 : undefined,
   };
@@ -495,6 +538,7 @@ function statusInfo() {
     extension,
     project: config.project,
     outputDir: config.outputDir,
+    collectionsDir: config.collectionsDir,
     debug: config.debug,
     running: publicJob(jobs.find(j => j.id === runningId)),
     queued: jobs.filter(j => j.status === 'queued').map(j => j.id),
@@ -506,7 +550,7 @@ function statusInfo() {
 
 const handlers = {
   status: () => statusInfo(),
-  generate: p => publicJob(createJob(p)),
+  generate: p => publicJob(createWithCollection(p)),
   job: p => publicJob(findJob(p.jobId)),
   // The MCP server copies finished images into the caller's output_dir and records it here once.
   mark_copied: p => {
@@ -523,8 +567,13 @@ const handlers = {
       if (!path.isAbsolute(String(p.outputDir))) throw new shared.BridgeError('outputDir must be absolute.', 'BAD_REQUEST');
       config.outputDir = String(p.outputDir);
     }
+    if (p.collectionsDir !== undefined) {
+      if (!path.isAbsolute(String(p.collectionsDir))) throw new shared.BridgeError('collectionsDir must be absolute.', 'BAD_REQUEST');
+      config.collectionsDir = String(p.collectionsDir);
+    }
     if (p.debug !== undefined) config.debug = !!p.debug;
     saveConfig();
+    if (p.collectionsDir !== undefined) collectionsChanged('folder set', { dir: config.collectionsDir });
     return config;
   },
   diagnose: p => askExtension('diagnose', p, 180000),
@@ -533,6 +582,23 @@ const handlers = {
     toExtension({ type: 'reload' });
     return { ok: true };
   },
+  // summary: without the image lists (the popup only needs names and counts).
+  list_collections: p => {
+    const list = store.list(config.collectionsDir);
+    return p.summary ? list.map(({ images, ...rest }) => rest) : list;
+  },
+  collection_add: p => collectionsChanged('add', store.add(config.collectionsDir, p)),
+  rename_collection: p => collectionsChanged('rename', store.rename(config.collectionsDir, p.name, p.newName)),
+  delete_collection: p => collectionsChanged('delete', store.remove(config.collectionsDir, p.name)),
+  delete_collection_image: p => collectionsChanged('delete image', store.removeImage(config.collectionsDir, p.name, p.file)),
+  collection_thumbs: p => store.thumbs(config.collectionsDir, p.name, p.offset),
+  gallery_list: p => gallery.listGallery(jobs, p.offset, p.limit, gallery.fileExists),
+  gallery_thumb: p => gallery.readPreview(shared.PREVIEW_DIR, galleryImage(p).image),
+  reveal_image: p => {
+    platform.revealInFolder(galleryImage(p, true).image.path);
+    return { ok: true };
+  },
+  collection_add_job_image: p => addJobImage(p),
 };
 
 async function answer(sock, line) {

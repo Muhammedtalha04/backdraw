@@ -1,0 +1,3 @@
+{
+  "extDescription": { "message": "Lets Claude generate images with your own signed-in ChatGPT account in a background tab. Runs entirely on your computer.", "description": "Extension description (manifest). Every other text is in i18n.js." }
+}
