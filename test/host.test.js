@@ -14,6 +14,7 @@ const test = require('node:test');
 const identity = require('../identity');
 const { buildText } = require('../lib/prompt');
 const { resultLines } = require('../lib/results');
+const { MAX_COLLECTION_BYTES } = require('../lib/limits');
 const { png } = require('./png-fixture');
 
 const ROOT = path.join(__dirname, '..');
@@ -21,13 +22,14 @@ const TAG = `backdraw-host-test-${process.pid}-${crypto.randomBytes(4).toString(
 const PIPE = process.platform === 'win32' ? `\\\\.\\pipe\\${TAG}` : path.join(os.tmpdir(), `${TAG}.sock`);
 const DIR = path.join(ROOT, `.${TAG}.tmp`);
 const IMAGES = path.join(DIR, 'images');
+const REFS = path.join(DIR, 'refs');
 const PROJECT = { id: 'g-p-67a1b2c3d4e5f60718293a4b5c6d7e8f', name: 'Images', url: 'https://chatgpt.com/g/g-p-67a1b2c3d4e5f60718293a4b5c6d7e8f/project' };
 const CHAT_URL = 'https://chatgpt.com/g/g-p-67a1b2c3d4e5f60718293a4b5c6d7e8f/c/6812a3b4-1c2d-8000-9e8f-0123456789ab';
 
 fs.mkdirSync(DIR);
 for (const f of ['host.js', 'shared.js', 'identity.js', 'package.json', 'lib', 'platform']) fs.cpSync(path.join(ROOT, f), path.join(DIR, f), { recursive: true });
 fs.mkdirSync(path.join(DIR, 'data'));
-fs.writeFileSync(path.join(DIR, 'data', 'config.json'), JSON.stringify({ outputDir: IMAGES, project: PROJECT }));
+fs.writeFileSync(path.join(DIR, 'data', 'config.json'), JSON.stringify({ outputDir: IMAGES, collectionsDir: REFS, project: PROJECT }));
 
 const child = spawn(process.execPath, [path.join(DIR, 'host.js')], { cwd: DIR, env: { ...process.env, [identity.PIPE_ENV]: PIPE }, stdio: ['pipe', 'pipe', 'ignore'] });
 const exited = new Promise(resolve => child.once('exit', resolve));
@@ -219,5 +221,62 @@ test('the host', async t => {
     assert.equal(run.transparent, false);
     toHost({ type: 'result', jobId: job.id, ok: false, status: 'failed', error: 'test over' });
     assert.equal((await finished(job.id)).status, 'failed');
+  });
+
+  // reveal_image is only ever called where it must fail: a real file would open Explorer.
+  await t.test('gallery: list, preview, add to a collection, all by job id and number only', async () => {
+    const job = await call('generate', { prompt: 'A gallery cat' });
+    await nextFromHost('run');
+    const image = png(2, { width: 900, height: 600 });
+    toHost({ type: 'result', jobId: job.id, ok: true, status: 'succeeded', conversationUrl: CHAT_URL, images: [{ data: b64(image), mime: 'image/png', width: 900, height: 600, preview: b64(JPEG) }] });
+    const done = await finished(job.id);
+    const saved = done.images[0].path;
+
+    const list = await call('gallery_list', { offset: 0, limit: 100 });
+    assert.equal(list.total, 5); // the banner's two images, the void mage, the landscape and this one
+    assert.deepEqual(list.items[0], {
+      jobId: job.id, n: 1, createdAt: done.createdAt, prompt: 'A gallery cat', conversationUrl: CHAT_URL, path: saved,
+      width: 900, height: 600, aspect: null, preview: true, missing: false,
+    });
+    assert.deepEqual(list.items.slice(3).map(x => [x.n, x.aspect, x.prompt]), [[1, '4:1', 'A wide banner'], [2, '4:1', 'A wide banner']]);
+    assert.deepEqual(await call('gallery_thumb', { jobId: job.id, n: 1 }), { data: b64(JPEG), mime: 'image/jpeg' });
+    assert.deepEqual(await call('gallery_thumb', { jobId: list.items[3].jobId, n: 1 }), { data: null, mime: null }); // its preview is no JPEG
+
+    // The extension asks the same over its native port.
+    toHost({ type: 'call', reqId: 'g1', method: 'gallery_list', params: { offset: 1, limit: 2 } });
+    const page = await nextFromHost('reply');
+    assert.deepEqual([page.reqId, page.ok, page.result.total, page.result.next, page.result.items.length], ['g1', true, 5, 3, 2]);
+
+    toHost({ type: 'call', reqId: 'g2', method: 'collection_add_job_image', params: { collection: 'Gallery picks', create: true, jobId: job.id, n: 1, path: path.join(DIR, 'host.js') } });
+    const added = await nextFromHost('reply');
+    assert.equal(added.ok, true, added.error);
+    assert.deepEqual({ ...added.result, file: 0 }, { name: 'Gallery picks', folder: 'Gallery picks', file: 0, count: 1, created: true, duplicate: false });
+    assert.equal(added.result.file, `001_${path.basename(saved, '.png').replace(/_/g, '-')}.png`);
+    assert.deepEqual(fs.readFileSync(path.join(REFS, 'Gallery picks', added.result.file)), image);
+    assert.deepEqual(fs.readFileSync(path.join(REFS, 'Gallery picks', 'thumbs', `${added.result.file}.jpg`)), JPEG);
+    const manifest = JSON.parse(fs.readFileSync(path.join(REFS, 'Gallery picks', 'collection.json'), 'utf8'));
+    assert.deepEqual([manifest.images[0].sourceUrl, manifest.images[0].pageUrl], [CHAT_URL, CHAT_URL]);
+    assert.deepEqual((await nextFromHost('collections')).collections, [{ name: 'Gallery picks', count: 1 }]);
+    const again = await call('collection_add_job_image', { collection: 'gallery picks', jobId: job.id, n: 1 });
+    assert.deepEqual([again.duplicate, again.count], [true, 1]);
+    await assert.rejects(call('collection_add_job_image', { collection: 'Nope', jobId: job.id, n: 1 }), { code: 'NOT_FOUND' });
+
+    // Never a path: an unknown job, a string number or a path alone find nothing.
+    for (const p of [{ jobId: 'img_00000000', n: 1 }, { jobId: job.id, n: '1' }, { jobId: job.id, n: 2 }, { path: saved }, { jobId: saved, n: 1 }]) {
+      for (const method of ['reveal_image', 'gallery_thumb', 'collection_add_job_image']) {
+        await assert.rejects(call(method, { collection: 'Gallery picks', ...p }), { code: 'NOT_FOUND', message: 'That image is not in the gallery any more.' }, `${method} ${JSON.stringify(p)}`);
+      }
+    }
+    // A file that grew past the collection limit is refused before it is read.
+    fs.truncateSync(saved, MAX_COLLECTION_BYTES + 1);
+    await assert.rejects(call('collection_add_job_image', { collection: 'Gallery picks', jobId: job.id, n: 1 }), { code: 'TOO_LARGE', message: 'The image is larger than 25 MB.' });
+    // A file deleted by hand is marked in the list and refused.
+    fs.unlinkSync(saved);
+    assert.equal((await call('gallery_list', { limit: 1 })).items[0].missing, true);
+    for (const method of ['reveal_image', 'collection_add_job_image']) {
+      await assert.rejects(call(method, { collection: 'Gallery picks', jobId: job.id, n: 1 }), { code: 'NOT_FOUND', message: `The image file was moved or deleted: ${saved}` }, method);
+    }
+    toHost({ type: 'call', reqId: 'g3', method: 'reveal_image', params: { jobId: job.id, n: 1 } });
+    assert.deepEqual(await nextFromHost('reply'), { type: 'reply', reqId: 'g3', ok: false, error: `The image file was moved or deleted: ${saved}`, code: 'NOT_FOUND' });
   });
 });

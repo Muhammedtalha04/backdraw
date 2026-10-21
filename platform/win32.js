@@ -4,7 +4,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const identity = require('../identity');
 
 const USER_TAG = (os.userInfo().username || 'user').replace(/[^A-Za-z0-9_.-]/g, '_');
@@ -127,8 +127,18 @@ function claudeCli() {
   try { return execFileSync('where.exe', ['claude'], { encoding: 'utf8' }).split(/\r?\n/)[0].trim() || null; } catch { return null; }
 }
 
+// Opens Explorer with the file selected. No shell: explorer.exe is started directly. Its own parser
+// splits "/select," arguments at commas, so the path is always quoted (a Windows path never holds ").
+function revealInFolder(file, run = spawn) {
+  if (typeof file !== 'string' || !path.win32.isAbsolute(file) || file.includes('"')) throw new Error('Not an absolute file path.');
+  const child = run('explorer.exe', ['/select,', `"${file}"`], { detached: true, stdio: 'ignore', windowsVerbatimArguments: true });
+  child.on('error', () => {});
+  child.unref();
+}
+
 module.exports = {
   pipePath, installDir, legacyInstallDir, claudeConfigFile, desktopConfigFiles, desktopAppRunning, parseClaudeProcesses,
   writeHostLauncher, registerNativeHost, unregisterNativeHost, nativeHostEntry,
   picturesDir, claudeCli,
+  revealInFolder,
 };

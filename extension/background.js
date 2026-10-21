@@ -262,6 +262,7 @@ async function runJob(job) {
   const ctx = current = {
     job, cancelled: false, tabId: null, conversationUrl: null, lastText: '', sent: false, keepTab: false,
     step: 'starting', message: '', deadline: Date.now() + (job.timeoutSec || 600) * 1000, refs: job.refs || [],
+    startedAt: Date.now(),
   };
   ctx.progress = (step, message, extra = {}) => {
     ctx.step = step;
@@ -964,6 +965,35 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 chrome.storage.local.get('chatgptState').then(r => {
   if (r.chatgptState && !chatgptState.checkedAt) chatgptState = { ...chatgptState, ...r.chatgptState };
 }).catch(() => {});
+
+// ---------------------------------------------------------------- gallery side panel
+
+// What the side panel may ask the host through the worker (the host has its own allow-list too).
+const PANEL_HOST_METHODS = new Set(['gallery_list', 'gallery_thumb', 'reveal_image', 'collection_add_job_image', 'list_collections']);
+
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg || sender.id !== chrome.runtime.id || !String(sender.url || '').startsWith(chrome.runtime.getURL(''))) return;
+  if (msg.type === 'panel:status') {
+    reply({
+      connected: hostReady, lastError,
+      current: current ? { id: current.job.id, step: current.step, message: current.message, startedAt: current.startedAt } : null,
+    });
+  } else if (msg.type === 'panel:call') {
+    if (!PANEL_HOST_METHODS.has(msg.method)) { reply({ ok: false, error: `Not allowed: ${msg.method}` }); return; }
+    callHost(msg.method, msg.params || {}).then(result => reply({ ok: true, result }), e => reply({ ok: false, error: String((e && e.message) || e) }));
+    return true;
+  }
+});
+
+// A menu click counts as the user gesture sidePanel.open needs, so nothing is awaited before it.
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== backdrawMenus.GALLERY_ID || !tab || !(tab.windowId >= 0)) return;
+  try {
+    chrome.sidePanel.open({ windowId: tab.windowId }).catch(e => log('warn', 'the side panel did not open', String(e)));
+  } catch (e) {
+    log('warn', 'the side panel did not open', String(e));
+  }
+});
 
 // ---------------------------------------------------------------- start
 

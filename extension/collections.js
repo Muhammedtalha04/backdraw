@@ -83,6 +83,7 @@ function collectionsOffline() {
 // A rebuild that a newer one has overtaken is skipped, so the last call always wins.
 function rebuildMenu() {
   const items = backdrawMenus.menuItems(hostReady ? collections : null, key => i18n.t(key));
+  items.push(...backdrawMenus.actionItems(key => i18n.t(key))); // removeAll takes them too
   const sig = latestMenu = JSON.stringify(items);
   menuChain = menuChain.then(async () => {
     if (sig !== latestMenu || sig === shownMenu) return;

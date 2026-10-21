@@ -6,6 +6,7 @@
   const NEW = 'backdraw:new';
   const SEP = 'backdraw:sep';
   const OFF = 'backdraw:off';
+  const GALLERY_ID = 'backdraw:gallery'; // on the toolbar icon; parseMenuId leaves it to background.js
   // Images on web pages and local files only: the extension's own pages show thumbnails of images
   // that are already in a collection.
   const where = { contexts: ['image'], documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*'] };
@@ -37,7 +38,13 @@
     return { left: Math.round(win.left + (win.width - width) / 2), top: Math.round(win.top + (win.height - height) / 2) };
   }
 
-  const api = { menuItems, parseMenuId, centreOver };
+
+  // The toolbar icon's own right-click menu (the icon itself keeps opening the popup).
+  function actionItems(msg) {
+    return [{ id: GALLERY_ID, title: msg('menuGallery'), contexts: ['action'] }];
+  }
+
+  const api = { menuItems, parseMenuId, centreOver, actionItems, GALLERY_ID };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else globalThis.backdrawMenus = api;
 })();

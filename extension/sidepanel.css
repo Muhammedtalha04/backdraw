@@ -1,0 +1,113 @@
+/* The popup's palette. A stored theme (data-theme on <html>) wins over the system setting. */
+:root {
+  color-scheme: light;
+  --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --card: #ffffff; --soft: #f5f5f7;
+  --ok: #1a7f37; --bad: #c62828; --warn: #9a5b00; --accent: #7c3aed; --accent-fg: #ffffff; --accent-soft: rgba(124, 58, 237, .1);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .05);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #1c1c1e; --fg: #f2f2f7; --muted: #a1a1a6; --line: #38383a; --card: #242426; --soft: #2c2c2e;
+    --ok: #3fb950; --bad: #ff6b6b; --warn: #f0b429; --accent-soft: rgba(167, 139, 250, .16); --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1c1c1e; --fg: #f2f2f7; --muted: #a1a1a6; --line: #38383a; --card: #242426; --soft: #2c2c2e;
+  --ok: #3fb950; --bad: #ff6b6b; --warn: #f0b429; --accent-soft: rgba(167, 139, 250, .16); --shadow: none;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; }
+
+.top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  border-bottom: 1px solid var(--line); background: var(--bg); }
+.top img { width: 20px; height: 20px; }
+.top h1 { flex: 1; margin: 0; font-size: 14px; font-weight: 600; }
+.top h1 span { color: var(--muted); font-weight: 400; }
+
+.icon-btn { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--line);
+  border-radius: 7px; background: transparent; cursor: pointer; }
+.icon-btn:hover:not(:disabled) { background: var(--soft); }
+.icon-btn:disabled { opacity: .4; cursor: default; }
+.icon-btn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.icon-btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.now { position: relative; display: flex; align-items: center; gap: 10px; margin: 12px 14px 4px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--soft); overflow: hidden; }
+.now .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.now-text { min-width: 0; }
+#nowTitle { font-weight: 600; overflow-wrap: anywhere; }
+#nowMeta { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+#nowMeta:empty { display: none; }
+.now.offline .dot { background: var(--bad); }
+.now.offline #nowTitle { color: var(--bad); }
+.now.human { border-color: var(--warn); }
+.now.human .dot { background: var(--warn); }
+.now.running .dot { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.now.running::after { content: ""; position: absolute; left: 0; bottom: 0; width: 35%; height: 2px; background: var(--accent);
+  animation: slide 1.8s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+
+main { padding: 6px 14px 18px; }
+.head { display: flex; align-items: baseline; gap: 8px; }
+.head h2 { margin: 8px 0; font-size: 13px; }
+#count { color: var(--muted); font-size: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 10px; }
+
+.card { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); box-shadow: var(--shadow); overflow: hidden; }
+.card.open { grid-column: 1 / -1; }
+.thumb { position: relative; display: grid; place-items: center; aspect-ratio: 1; max-height: 260px; background: var(--soft); overflow: hidden; }
+/* Out of the flow, so the box clamped by max-height is what the image is fitted into. */
+.thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.thumb .ph { padding: 6px; color: var(--muted); font-size: 11px; text-align: center; }
+.thumb.loading { background: linear-gradient(100deg, var(--soft) 30%, var(--line) 50%, var(--soft) 70%) 0 0 / 300% 100%;
+  animation: shimmer 1.4s linear infinite; }
+@keyframes shimmer { to { background-position: -150% 0; } }
+.card.missing .thumb img { opacity: .45; filter: grayscale(1); }
+.body { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+.prompt { margin: 0; min-height: 2.7em; font-size: 12.5px; line-height: 1.35; overflow: hidden; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.prompt.none { color: var(--muted); font-style: italic; }
+.meta { display: flex; flex-wrap: wrap; gap: 2px 8px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.pill { padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; }
+.actions { display: flex; gap: 4px; }
+.actions .icon-btn { flex: 1 1 0; width: auto; min-width: 0; max-width: 40px; }
+.note { margin: 0; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.note:empty { display: none; }
+.note.ok { color: var(--ok); }
+.note.bad { color: var(--bad); font-weight: 600; }
+.note.warn { color: var(--warn); }
+
+.adder { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.adder .col { display: flex; justify-content: space-between; gap: 8px; width: 100%; padding: 5px 8px; border: 1px solid var(--line);
+  border-radius: 7px; background: transparent; text-align: left; cursor: pointer; }
+.adder .col:hover:not(:disabled) { border-color: var(--accent); }
+.adder .col:disabled { opacity: .5; cursor: default; }
+.adder .col span:first-child { overflow-wrap: anywhere; }
+.adder .col span + span { flex: none; color: var(--muted); }
+.adder .col.new { color: var(--accent); font-weight: 600; }
+.adder .list { display: flex; flex-direction: column; gap: 4px; max-height: 210px; overflow-y: auto; }
+.adder form { display: flex; flex-wrap: wrap; gap: 4px; }
+.adder input { flex: 1 1 140px; min-width: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--fg); font: inherit; }
+.btn { padding: 5px 10px; border: 1px solid var(--line); border-radius: 7px; background: transparent; cursor: pointer; }
+.btn.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+.msg { margin: 14px 0 0; color: var(--muted); text-align: center; }
+.msg:empty { display: none; }
+.msg.bad { color: var(--bad); font-weight: 600; }
+.more { display: block; margin: 14px auto 0; padding: 7px 18px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--card); font-weight: 600; cursor: pointer; }
+.more:hover:not(:disabled) { border-color: var(--accent); }
+.more:disabled { opacity: .5; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .now.running .dot, .now.running::after, .thumb.loading { animation: none; }
+}

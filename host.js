@@ -19,6 +19,8 @@ const { MAX_REFS, MAX_REF_BYTES, MAX_REFS_TOTAL_BYTES, MAX_COLLECTION_BYTES } = 
 const { withCollection } = require('./lib/collections');
 const store = require('./lib/collection-store');
 const { callAssembler, answerCall } = require('./lib/extension-calls');
+const gallery = require('./lib/gallery');
+const platform = require('./platform');
 
 const VERSION = shared.VERSION;
 const LOG_FILE = path.join(shared.LOG_DIR, 'host.log');
@@ -477,6 +479,36 @@ function createWithCollection(p) {
   return job;
 }
 
+// ---------------------------------------------------------------- gallery (the extension's side panel)
+
+// The panel names an image by job id and number only; the file is always the one the job saved.
+function galleryImage(p, needFile) {
+  const found = gallery.findJobImage(jobs, p.jobId, p.n);
+  if (!found) throw new shared.BridgeError('That image is not in the gallery any more.', 'NOT_FOUND');
+  if (needFile && !gallery.fileExists(found.image.path)) {
+    throw new shared.BridgeError(`The image file was moved or deleted: ${found.image.path}`, 'NOT_FOUND');
+  }
+  return found;
+}
+
+// Like a right-click add, with the chat as the source; the size limit applies before the file is read.
+// The panel's small JPEG (checked by the store like any thumbnail) or else the saved preview becomes
+// the collection's thumbnail; the store drops a preview over its thumbnail limit (256 KB), so then
+// there is none.
+function addJobImage(p) {
+  const { job, image } = galleryImage(p, true);
+  if (fs.statSync(image.path).size > MAX_COLLECTION_BYTES) {
+    throw new shared.BridgeError(`The image is larger than ${MAX_COLLECTION_BYTES / 1024 / 1024} MB.`, 'TOO_LARGE');
+  }
+  const thumb = typeof p.thumb === 'string' && p.thumb ? p.thumb : gallery.readPreview(shared.PREVIEW_DIR, image).data;
+  const params = {
+    collection: p.collection, create: !!p.create, data: fs.readFileSync(image.path).toString('base64'), thumb,
+    sourceUrl: job.conversationUrl, pageUrl: job.conversationUrl, width: image.width, height: image.height,
+  };
+  const fileName = path.basename(image.path, path.extname(image.path));
+  return collectionsChanged('add from the gallery', store.add(config.collectionsDir, params, new Date(), { fileName }));
+}
+
 // ---------------------------------------------------------------- local API (named pipe)
 
 function publicJob(j) {
@@ -555,6 +587,13 @@ const handlers = {
   delete_collection: p => collectionsChanged('delete', store.remove(config.collectionsDir, p.name)),
   delete_collection_image: p => collectionsChanged('delete image', store.removeImage(config.collectionsDir, p.name, p.file)),
   collection_thumbs: p => store.thumbs(config.collectionsDir, p.name, p.offset),
+  gallery_list: p => gallery.listGallery(jobs, p.offset, p.limit, gallery.fileExists),
+  gallery_thumb: p => gallery.readPreview(shared.PREVIEW_DIR, galleryImage(p).image),
+  reveal_image: p => {
+    platform.revealInFolder(galleryImage(p, true).image.path);
+    return { ok: true };
+  },
+  collection_add_job_image: p => addJobImage(p),
 };
 
 async function answer(sock, line) {

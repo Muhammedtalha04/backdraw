@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Backdraw</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="top">
+    <img src="icons/icon32.png" alt="">
+    <h1>Backdraw <span data-i18n="galleryTitle">Gallery</span></h1>
+    <button id="refresh" type="button" class="icon-btn" data-i18n-title="refresh" title="Refresh"></button>
+  </header>
+  <section id="now" class="now loading" aria-live="polite">
+    <span class="dot" aria-hidden="true"></span>
+    <div class="now-text">
+      <div id="nowTitle">…</div>
+      <div id="nowMeta"></div>
+    </div>
+  </section>
+  <main>
+    <div class="head"><h2 data-i18n="galleryTitle">Gallery</h2><span id="count"></span></div>
+    <div id="grid" class="grid"></div>
+    <p id="msg" class="msg" role="status"></p>
+    <button id="more" type="button" class="more" data-i18n="loadMore" hidden>Load more</button>
+  </main>
+  <script src="i18n.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
